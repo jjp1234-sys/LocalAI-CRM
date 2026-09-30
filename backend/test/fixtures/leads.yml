@@ -1,0 +1,34 @@
+sarah:
+  business: acme
+  name: Sarah Johnson
+  email: sarah@example.com
+  need: Conference room AV for 30 people
+  source: facebook
+  status: qualified
+  score: 86
+  last_activity_at: <%= 2.hours.ago.utc.iso8601 %>
+
+michael:
+  business: acme
+  name: Michael Reed
+  phone: "+1 305 555 0142"
+  need: Site estimate
+  source: website
+  status: new
+  external_id: form-123
+  last_activity_at: <%= 1.day.ago.utc.iso8601 %>
+
+archived_lead:
+  business: acme
+  name: Old Lead
+  email: old@example.com
+  source: referral
+  status: lost
+  archived_at: <%= 3.days.ago.utc.iso8601 %>
+
+globex_lead:
+  business: globex
+  name: Secret Globex Customer
+  email: secret@globex.example
+  source: website
+  status: new

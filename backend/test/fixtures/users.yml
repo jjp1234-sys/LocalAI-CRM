@@ -1,0 +1,9 @@
+<% digest = BCrypt::Password.create("correct horse battery staple", cost: BCrypt::Engine::MIN_COST) %>
+# alice: Acme owner.  carol: Acme admin.  bob: Acme agent.
+# mallory: owner of Globex, a different business. Must never see Acme's data.
+<% %w[alice bob carol mallory].each do |name| %>
+<%= name %>:
+  name: <%= name.capitalize %>
+  email_address: <%= name %>@example.com
+  password_digest: <%= digest %>
+<% end %>

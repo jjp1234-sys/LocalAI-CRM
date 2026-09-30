@@ -1,0 +1,9 @@
+acme:
+  name: Acme AV
+  slug: acme-av
+  time_zone: America/New_York
+
+globex:
+  name: Globex Plumbing
+  slug: globex-plumbing
+  time_zone: America/Chicago

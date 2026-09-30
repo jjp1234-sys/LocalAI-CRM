@@ -1,0 +1,13 @@
+acme_website:
+  business: acme
+  created_by: alice
+  name: Website form
+  token_digest: <%= OpenSSL::Digest::SHA256.hexdigest(ActiveSupport::TestCase::INTAKE_TOKEN) %>
+  token_prefix: fdi_acme_t
+
+acme_revoked:
+  business: acme
+  name: Old form
+  token_digest: <%= OpenSSL::Digest::SHA256.hexdigest(ActiveSupport::TestCase::REVOKED_INTAKE_TOKEN) %>
+  token_prefix: fdi_acme_r
+  revoked_at: <%= 1.day.ago.utc.iso8601 %>

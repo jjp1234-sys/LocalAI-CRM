@@ -1,0 +1,13 @@
+<% ActiveSupport::TestCase::SESSION_TOKENS.each do |name, token| %>
+<%= name %>:
+  user: <%= name %>
+  token_digest: <%= OpenSSL::Digest::SHA256.hexdigest(token) %>
+  expires_at: <%= 7.days.from_now.utc.iso8601 %>
+  created_at: <%= Time.current.utc.iso8601 %>
+<% end %>
+
+expired:
+  user: alice
+  token_digest: <%= OpenSSL::Digest::SHA256.hexdigest("fds_expired_token") %>
+  expires_at: <%= 1.minute.ago.utc.iso8601 %>
+  created_at: <%= 15.days.ago.utc.iso8601 %>

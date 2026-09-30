@@ -79,11 +79,7 @@ module Whatsapp
     # Only current members: someone removed from the business stops getting
     # its customers' messages, even if a lead is still assigned to them.
     def recipients(lead)
-      members = User.joins(:memberships).where(memberships: { business_id: lead.business_id }).where.not(phone: nil)
-      assigned = members.find_by(id: lead.assigned_user_id) if lead.assigned_user_id
-      return [ assigned ] if assigned
-
-      members.where(memberships: { role: %w[owner admin] })
+      Team.recipients(lead)
     end
 
     def notify(lead)

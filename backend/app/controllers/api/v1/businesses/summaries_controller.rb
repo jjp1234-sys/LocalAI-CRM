@@ -16,6 +16,7 @@ module Api
             # Money, in cents.
             pipeline_value_cents: leads.where(status: %w[new contacted qualified appointment]).sum(:value_cents),
             won_this_month_cents: Lead.where(won_at: month_start..).sum(:value_cents),
+            won_this_month_costs_cents: JobCost.where(lead_id: Lead.where(won_at: month_start..).select(:id)).sum(:amount_cents),
             by_source: by_source
           })
         end
@@ -28,11 +29,15 @@ module Api
           rows = Lead.group(:source).pluck(
             :source, Arel.sql("count(*)"), Arel.sql("count(*) FILTER (WHERE status = 'won')"),
             Arel.sql("coalesce(sum(value_cents) FILTER (WHERE status = 'won'), 0)"),
-            Arel.sql("coalesce(sum(acquisition_cost_cents), 0)")
+            Arel.sql("coalesce(sum(acquisition_cost_cents), 0)"),
+            Arel.sql("coalesce(sum((SELECT sum(amount_cents) FROM job_costs jc WHERE jc.lead_id = leads.id)) FILTER (WHERE status = 'won'), 0)")
           )
           # Postgres returns sums as decimals; money here is whole cents.
-          rows.to_h do |source, count, won, revenue, cost|
-            [ source, { leads: count, won: won, revenue_cents: revenue.to_i, cost_cents: cost.to_i } ]
+          # profit = what won jobs earned, minus what they cost to do, minus
+          # what the leads cost to get.
+          rows.to_h do |source, count, won, revenue, cost, job_costs|
+            [ source, { leads: count, won: won, revenue_cents: revenue.to_i, cost_cents: cost.to_i,
+                        job_costs_cents: job_costs.to_i, profit_cents: revenue.to_i - job_costs.to_i - cost.to_i } ]
           end
         end
       end

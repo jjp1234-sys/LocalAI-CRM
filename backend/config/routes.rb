@@ -2,6 +2,13 @@ Rails.application.routes.draw do
   # Load balancers and uptime monitors check this. 200 if the app booted.
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # Quote and contract pages customers open from a link.
+  get "q/:token", to: "public_documents#quote", as: :public_quote
+  post "q/:token/accept", to: "public_documents#accept_quote"
+  post "q/:token/decline", to: "public_documents#decline_quote"
+  get "c/:token", to: "public_documents#contract", as: :public_contract
+  post "c/:token/sign", to: "public_documents#sign_contract"
+
   # Meta's WhatsApp webhook.
   get "webhooks/whatsapp", to: "webhooks/whatsapp#verify"
   post "webhooks/whatsapp", to: "webhooks/whatsapp#receive"
@@ -40,6 +47,16 @@ Rails.application.routes.draw do
             end
             resources :activities, only: :index
             resources :notes, only: [ :index, :create ]
+            resources :job_costs, only: [ :index, :create ]
+          end
+          resources :quotes, only: [ :index, :show, :create, :update ] do
+            post :deliver, on: :member
+          end
+          resources :contracts, only: [ :index, :show, :create ] do
+            member do
+              post :deliver
+              post :void
+            end
           end
           resources :follow_ups, only: [ :index, :show, :create, :update ]
           resources :conversations, only: [ :index, :show, :create, :update ] do

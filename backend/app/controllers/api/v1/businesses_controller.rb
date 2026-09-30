@@ -11,7 +11,7 @@ module Api
       end
 
       def update
-        Current.business.update!(params.expect(business: [ :name, :time_zone ]))
+        Current.business.update!(params.expect(business: [ :name, :time_zone, :default_tax_rate_bps, :quote_valid_days, :contract_terms ]))
         render_data Serializers.business(Current.business)
       end
 

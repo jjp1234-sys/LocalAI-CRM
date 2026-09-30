@@ -30,6 +30,10 @@ module Assistant
       *tasks*, then *done 1*: your reminders
       *value 2 4500*: what the deal is worth
       *won 2 4500*, *lost 2*, *qualified 2*: move a lead along
+      *cost 2 1800 speakers*: record a job cost (shows profit)
+      *quote 2*, then *add 4 speakers 350*, *send quote*: build and send a quote
+      *contract 2*: send the contract for their accepted quote
+      *docs 2*: a lead's quotes and contracts, with links
     TEXT
 
     def initialize(account:, user:, event:)
@@ -70,6 +74,15 @@ module Assistant
       when /\Anote\s+(.+)\z/m then add_note(text.split(/\s+/, 2).last)
       when /\A(?:remind|reminder|fu)\s+(.+)\z/m then remind(text.split(/\s+/, 2).last)
       when /\Avalue\s+(.+)\z/ then set_value(text.split(/\s+/, 2).last)
+      when /\Acost\s+(.+)\z/ then add_cost(text.split(/\s+/, 2).last)
+      when "quote", "show quote" then show_quote
+      when "send quote", "send" then send_quote
+      when /\Aquote\s+(.+)\z/ then start_quote(text.split(/\s+/, 2).last)
+      when /\Aadd\s+(.+)\z/ then add_quote_item(text.split(/\s+/, 2).last)
+      when /\Aremove\s+(\d{1,2})\z/ then remove_quote_item(Regexp.last_match(1).to_i)
+      when /\Atax\s+(\d{1,2}(?:\.\d{1,2})?)%?\z/ then set_quote_tax(Regexp.last_match(1))
+      when /\Acontract\s+(.+)\z/ then send_contract(text.split(/\s+/, 2).last)
+      when /\Adocs?\s+(.+)\z/ then list_docs(text.split(/\s+/, 2).last)
       when /\A(?:lead|show|l)\s+(.+)\z/ then show_lead(text.split(/\s+/, 2).last)
       when /\A(?:reply|r)\s+(.+)\z/m then reply_command(text.split(/\s+/, 2).last)
       when /\Abook\s+(.+)\z/ then book(text.split(/\s+/, 2).last)
@@ -98,6 +111,8 @@ module Assistant
       lines << [ lead.phone, lead.email ].compact.join(" · ")
       lines << "Needs: #{lead.need}" if lead.need
       lines << "Worth: #{Money.format(lead.value_cents)}" if lead.value_cents
+      costs = lead.job_costs_cents
+      lines << "Costs: #{Money.format(costs)} · Profit: #{lead.profit_cents ? Money.format(lead.profit_cents) : "set a value to see it"}" if costs.positive?
       lead.notes.last(2).each { |n| lines << "📝 #{n.body.truncate(120)}" }
       lead.follow_ups.open.order(:due_at).limit(2).each { |f| lines << "⏰ #{f.body} · #{when_text(f.due_at)}" }
       if (appointment = lead.appointments.upcoming.order(:starts_at).first)
@@ -135,7 +150,155 @@ module Assistant
       return problem unless lead
 
       lead.update!(value_cents: cents)
-      "✓ *#{lead.name}* is worth #{Money.format(cents)}."
+      profit = lead.job_costs_cents.positive? ? " Profit: #{Money.format(lead.profit_cents)}." : ""
+      "✓ *#{lead.name}* is worth #{Money.format(cents)}.#{profit}"
+    end
+
+    # "cost 2 1800 speakers", "cost sarah $450 cable run"
+    def add_cost(rest)
+      tokens = rest.split
+      amount_at = tokens.index { |t| Money.parse(t) }
+      return "Try *cost 2 1800 speakers*: the lead, the amount, then what it was for." unless amount_at&.positive?
+
+      lead, problem = resolve(tokens[0...amount_at].join(" "), verb: "cost")
+      return problem unless lead
+
+      cents = Money.parse(tokens[amount_at])
+      what = tokens[(amount_at + 1)..].join(" ").presence || "Job cost"
+      lead.job_costs.create!(description: what, amount_cents: cents, created_by: @user)
+      profit = lead.profit_cents ? " Profit now: *#{Money.format(lead.profit_cents)}*." : " Set *value* to see profit."
+      "✓ #{Money.format(cents)} for #{what} on *#{lead.name}*.#{profit}"
+    end
+
+    # --- Quotes and contracts ---------------------------------------------------
+    #
+    # "quote 2" opens a draft for that lead (or reopens their unsent one) and
+    # remembers it, so "add", "remove", "tax" and "send quote" apply to it.
+
+    def current_quote
+      id = @session.state["quote_id"]
+      quote = id && Quote.find_by(id: id)
+      quote if quote&.editable?
+    end
+
+    def start_quote(ref)
+      lead, problem = resolve(ref, verb: "quote")
+      return problem unless lead
+
+      quote = lead.quotes.where(status: %w[draft sent]).order(:created_at).last ||
+        Quote.create_numbered!(lead: lead, created_by: @user)
+      @session.update!(state: @session.state.merge("quote_id" => quote.id))
+      return quote_summary(quote) if quote.items.any?
+
+      "📝 Started #{quote.label} for *#{lead.name}*.\nAdd lines like *add 4 speakers 350* or *add install labor 1200*, then *send quote*."
+    end
+
+    # "add 4 speakers 350", "add 4x speakers $350", "add install labor 1200",
+    # "add 2.5 hours labor 90": an optional quantity first, the price last.
+    def add_quote_item(rest)
+      quote = current_quote
+      return "Start a quote first: *quote 2*." unless quote
+
+      tokens = rest.split
+      price = Money.parse(tokens.last.to_s)
+      return "Put the price last, like *add 4 speakers 350*." unless price && tokens.size >= 2
+
+      tokens.pop
+      quantity = 1
+      if tokens.size > 1 && (m = tokens.first.match(/\A(\d+(?:\.\d{1,2})?)x?\z/i))
+        quantity = BigDecimal(m[1])
+        tokens.shift
+      end
+      quote.add_item!(description: tokens.join(" "), quantity: quantity, unit_price_cents: price)
+      quote_summary(quote.reload)
+    end
+
+    def remove_quote_item(number)
+      quote = current_quote
+      return "Start a quote first: *quote 2*." unless quote
+
+      item = quote.items.to_a[number - 1] if number.positive?
+      return "There's no line #{number}." unless item
+
+      item.destroy!
+      quote_summary(quote.reload)
+    end
+
+    def set_quote_tax(percent)
+      quote = current_quote
+      return "Start a quote first: *quote 2*." unless quote
+
+      bps = (BigDecimal(percent) * 100).round
+      return "Tax must be between 0% and 30%." unless bps.between?(0, 3000)
+
+      quote.update!(tax_rate_bps: bps)
+      quote_summary(quote)
+    end
+
+    def show_quote
+      quote = current_quote
+      return "No quote in progress. Start one with *quote 2*." unless quote
+
+      quote_summary(quote)
+    end
+
+    def quote_summary(quote)
+      lines = [ "📝 *#{quote.label}* for *#{quote.lead.name}* (#{quote.status})" ]
+      quote.items.each_with_index do |item, i|
+        qty = item.quantity == item.quantity.to_i ? item.quantity.to_i : item.quantity
+        lines << "#{i + 1}. #{item.description} · #{qty} × #{Money.format(item.unit_price_cents)} = #{Money.format(item.amount_cents)}"
+      end
+      lines << "Tax #{quote.tax_rate_bps / 100.0}%: #{Money.format(quote.tax_cents)}" if quote.tax_rate_bps.positive?
+      lines << "*Total: #{Money.format(quote.total_cents)}*"
+      lines << ""
+      lines << "Preview: #{quote.public_url}"
+      lines << "*send quote* when it's ready · *remove 2* to drop a line · *tax 7* to set tax"
+      lines.join("\n")
+    end
+
+    def send_quote
+      quote = current_quote
+      return "No quote in progress. Start one with *quote 2*." unless quote
+      return "Add at least one line first, like *add install 1200*." if quote.items.empty?
+
+      quote.send!
+      lead = quote.lead
+      told = tell_customer(lead, "Here's your quote from #{@business.name} (#{Money.format(quote.total_cents)}):\n#{quote.public_url}")
+      delivery = told ? "I've sent it to them on WhatsApp." : "Forward this link to them (they haven't messaged in the last 24 hours, so I can't):"
+      "📨 #{quote.label} for *#{lead.name}* is sent. #{delivery}\n#{quote.public_url}"
+    end
+
+    # A contract from the lead's accepted quote (or their latest quote).
+    def send_contract(ref)
+      lead, problem = resolve(ref, verb: "contract")
+      return problem unless lead
+
+      quote = lead.quotes.status_accepted.order(:accepted_at).last
+      return "*#{lead.name}* hasn't accepted a quote yet. Send one with *quote #{ref}*." unless quote
+
+      contract = lead.contracts.where(quote: quote).where.not(status: "void").first ||
+        Contract.create_numbered!(lead: lead, quote: quote, created_by: @user,
+          body: Contract.build_body(business: @business, lead: lead, quote: quote))
+      return "*#{lead.name}* already signed #{contract.label}: #{contract.public_url}" if contract.status_signed?
+
+      contract.send!
+      told = tell_customer(lead, "Here's your contract from #{@business.name} to review and sign:\n#{contract.public_url}")
+      delivery = told ? "I've sent it to them on WhatsApp." : "Forward this link to them (they haven't messaged in the last 24 hours, so I can't):"
+      "📨 #{contract.label} for *#{lead.name}* is ready to sign. #{delivery}\n#{contract.public_url}"
+    end
+
+    def list_docs(ref)
+      lead, problem = resolve(ref, verb: "docs")
+      return problem unless lead
+
+      docs = (lead.quotes.to_a + lead.contracts.to_a).sort_by(&:created_at)
+      return "No quotes or contracts for *#{lead.name}* yet. Start one with *quote #{ref}*." if docs.empty?
+
+      lines = docs.map do |doc|
+        amount = doc.is_a?(Quote) ? " · #{Money.format(doc.total_cents)}" : ""
+        "#{doc.label} · #{doc.status}#{amount}\n#{doc.public_url}"
+      end
+      "📂 *#{lead.name}*\n#{lines.join("\n\n")}"
     end
 
     # --- Notes and reminders -----------------------------------------------

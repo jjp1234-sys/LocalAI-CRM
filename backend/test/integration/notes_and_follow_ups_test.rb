@@ -83,7 +83,8 @@ class NotesAndFollowUpsTest < ActionDispatch::IntegrationTest
     get biz_path(:acme, "summary"), headers: auth_headers(:bob)
     assert_equal 1_000_000, data["won_this_month_cents"]
     assert_equal 300_000, data["pipeline_value_cents"]
-    assert_equal({ "leads" => 1, "won" => 1, "revenue_cents" => 1_000_000, "cost_cents" => 5_000 }, data.dig("by_source", "purchased"))
+    assert_equal({ "leads" => 1, "won" => 1, "revenue_cents" => 1_000_000, "cost_cents" => 5_000,
+                   "job_costs_cents" => 0, "profit_cents" => 995_000 }, data.dig("by_source", "purchased"))
     assert_nil data.dig("by_source", "globex"), "only this business's leads"
   end
 

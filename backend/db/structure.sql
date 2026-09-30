@@ -19,6 +19,51 @@ CREATE FUNCTION public.current_business_id() RETURNS uuid
     AS $$ SELECT NULLIF(current_setting('app.current_business_id', true), '')::uuid $$;
 
 
+--
+-- Name: forbid_accepted_quote_changes(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.forbid_accepted_quote_changes() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF OLD.accepted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'quote % is accepted and can no longer change', OLD.id;
+  END IF;
+  RETURN NEW;
+END $$;
+
+
+--
+-- Name: forbid_accepted_quote_item_changes(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.forbid_accepted_quote_item_changes() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM quotes WHERE id = COALESCE(NEW.quote_id, OLD.quote_id) AND accepted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'quote is accepted; its items can no longer change';
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END $$;
+
+
+--
+-- Name: forbid_signed_contract_changes(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.forbid_signed_contract_changes() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF OLD.signed_at IS NOT NULL THEN
+    RAISE EXCEPTION 'contract % is signed and can no longer change', OLD.id;
+  END IF;
+  RETURN NEW;
+END $$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -101,8 +146,14 @@ CREATE TABLE public.businesses (
     time_zone character varying DEFAULT 'UTC'::character varying NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    default_tax_rate_bps integer DEFAULT 0 NOT NULL,
+    quote_valid_days integer DEFAULT 30 NOT NULL,
+    contract_terms text,
+    CONSTRAINT businesses_contract_terms_length CHECK ((char_length(contract_terms) <= 50000)),
     CONSTRAINT businesses_name_length CHECK (((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 120))),
-    CONSTRAINT businesses_slug_format CHECK (((slug)::text ~ '^[a-z0-9]([a-z0-9-]{1,61})[a-z0-9]$'::text))
+    CONSTRAINT businesses_quote_valid_days_range CHECK (((quote_valid_days >= 1) AND (quote_valid_days <= 365))),
+    CONSTRAINT businesses_slug_format CHECK (((slug)::text ~ '^[a-z0-9]([a-z0-9-]{1,61})[a-z0-9]$'::text)),
+    CONSTRAINT businesses_tax_rate_range CHECK (((default_tax_rate_bps >= 0) AND (default_tax_rate_bps <= 3000)))
 );
 
 
@@ -121,6 +172,36 @@ CREATE TABLE public.channel_accounts (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     CONSTRAINT channel_accounts_provider_valid CHECK (((provider)::text = ANY ((ARRAY['whatsapp_cloud'::character varying, 'simulator'::character varying])::text[])))
+);
+
+
+--
+-- Name: contracts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.contracts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    lead_id uuid NOT NULL,
+    quote_id uuid,
+    created_by_id uuid,
+    number integer NOT NULL,
+    status character varying DEFAULT 'draft'::character varying NOT NULL,
+    body text NOT NULL,
+    token_digest character varying NOT NULL,
+    token text,
+    sent_at timestamp(6) without time zone,
+    viewed_at timestamp(6) without time zone,
+    signed_at timestamp(6) without time zone,
+    signer_name character varying,
+    signer_ip character varying,
+    signer_user_agent character varying,
+    signed_body_sha256 character varying,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT contracts_body_length CHECK (((char_length(body) >= 1) AND (char_length(body) <= 100000))),
+    CONSTRAINT contracts_signed_consistent CHECK ((((status)::text = 'signed'::text) = (signed_at IS NOT NULL))),
+    CONSTRAINT contracts_status_valid CHECK (((status)::text = ANY ((ARRAY['draft'::character varying, 'sent'::character varying, 'signed'::character varying, 'void'::character varying])::text[])))
 );
 
 
@@ -222,6 +303,23 @@ CREATE TABLE public.invitations (
     CONSTRAINT invitations_email_length CHECK ((char_length((email_address)::text) <= 254)),
     CONSTRAINT invitations_email_lowercase CHECK (((email_address)::text = lower((email_address)::text))),
     CONSTRAINT invitations_role_valid CHECK (((role)::text = ANY ((ARRAY['owner'::character varying, 'admin'::character varying, 'agent'::character varying])::text[])))
+);
+
+
+--
+-- Name: job_costs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.job_costs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    lead_id uuid NOT NULL,
+    created_by_id uuid,
+    description character varying NOT NULL,
+    amount_cents bigint NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT job_costs_amount_range CHECK (((amount_cents >= 0) AND (amount_cents <= '100000000000'::bigint))),
+    CONSTRAINT job_costs_description_length CHECK (((char_length((description)::text) >= 1) AND (char_length((description)::text) <= 200)))
 );
 
 
@@ -339,6 +437,57 @@ CREATE TABLE public.outbound_messages (
 
 
 --
+-- Name: quote_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quote_items (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    quote_id uuid NOT NULL,
+    description character varying NOT NULL,
+    quantity numeric(10,2) DEFAULT 1.0 NOT NULL,
+    unit_price_cents bigint NOT NULL,
+    "position" integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT quote_items_description_length CHECK (((char_length((description)::text) >= 1) AND (char_length((description)::text) <= 300))),
+    CONSTRAINT quote_items_price_range CHECK (((unit_price_cents >= 0) AND (unit_price_cents <= '10000000000'::bigint))),
+    CONSTRAINT quote_items_quantity_range CHECK (((quantity > (0)::numeric) AND (quantity <= (100000)::numeric)))
+);
+
+
+--
+-- Name: quotes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quotes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    lead_id uuid NOT NULL,
+    created_by_id uuid,
+    number integer NOT NULL,
+    status character varying DEFAULT 'draft'::character varying NOT NULL,
+    tax_rate_bps integer DEFAULT 0 NOT NULL,
+    notes text,
+    valid_until date,
+    token_digest character varying NOT NULL,
+    token text,
+    sent_at timestamp(6) without time zone,
+    viewed_at timestamp(6) without time zone,
+    accepted_at timestamp(6) without time zone,
+    accepted_name character varying,
+    accepted_ip character varying,
+    declined_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT quotes_accepted_consistent CHECK ((((status)::text = 'accepted'::text) = (accepted_at IS NOT NULL))),
+    CONSTRAINT quotes_notes_length CHECK ((char_length(notes) <= 5000)),
+    CONSTRAINT quotes_status_valid CHECK (((status)::text = ANY ((ARRAY['draft'::character varying, 'sent'::character varying, 'accepted'::character varying, 'declined'::character varying, 'void'::character varying])::text[]))),
+    CONSTRAINT quotes_tax_rate_range CHECK (((tax_rate_bps >= 0) AND (tax_rate_bps <= 3000)))
+);
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -431,6 +580,14 @@ ALTER TABLE ONLY public.channel_accounts
 
 
 --
+-- Name: contracts contracts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contracts
+    ADD CONSTRAINT contracts_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: conversations conversations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -471,6 +628,14 @@ ALTER TABLE ONLY public.invitations
 
 
 --
+-- Name: job_costs job_costs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_costs
+    ADD CONSTRAINT job_costs_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: leads leads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -508,6 +673,22 @@ ALTER TABLE ONLY public.notes
 
 ALTER TABLE ONLY public.outbound_messages
     ADD CONSTRAINT outbound_messages_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: quote_items quote_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quote_items
+    ADD CONSTRAINT quote_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: quotes quotes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotes
+    ADD CONSTRAINT quotes_pkey PRIMARY KEY (id);
 
 
 --
@@ -640,6 +821,34 @@ CREATE UNIQUE INDEX index_channel_accounts_on_phone_number_id ON public.channel_
 
 
 --
+-- Name: index_contracts_on_business_id_and_number; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_contracts_on_business_id_and_number ON public.contracts USING btree (business_id, number);
+
+
+--
+-- Name: index_contracts_on_created_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_contracts_on_created_by_id ON public.contracts USING btree (created_by_id);
+
+
+--
+-- Name: index_contracts_on_lead_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_contracts_on_lead_id ON public.contracts USING btree (lead_id);
+
+
+--
+-- Name: index_contracts_on_token_digest; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_contracts_on_token_digest ON public.contracts USING btree (token_digest);
+
+
+--
 -- Name: index_conversations_on_assigned_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -735,6 +944,20 @@ CREATE INDEX index_invitations_on_invited_by_id ON public.invitations USING btre
 --
 
 CREATE UNIQUE INDEX index_invitations_one_open_per_email ON public.invitations USING btree (business_id, email_address) WHERE ((accepted_at IS NULL) AND (declined_at IS NULL) AND (revoked_at IS NULL));
+
+
+--
+-- Name: index_job_costs_on_created_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_job_costs_on_created_by_id ON public.job_costs USING btree (created_by_id);
+
+
+--
+-- Name: index_job_costs_on_lead_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_job_costs_on_lead_id ON public.job_costs USING btree (lead_id);
 
 
 --
@@ -843,6 +1066,48 @@ CREATE INDEX index_outbound_messages_on_status_and_created_at ON public.outbound
 
 
 --
+-- Name: index_quote_items_on_quote_id_and_position; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_quote_items_on_quote_id_and_position ON public.quote_items USING btree (quote_id, "position");
+
+
+--
+-- Name: index_quotes_on_business_id_and_number; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_quotes_on_business_id_and_number ON public.quotes USING btree (business_id, number);
+
+
+--
+-- Name: index_quotes_on_created_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_quotes_on_created_by_id ON public.quotes USING btree (created_by_id);
+
+
+--
+-- Name: index_quotes_on_id_and_business_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_quotes_on_id_and_business_id ON public.quotes USING btree (id, business_id);
+
+
+--
+-- Name: index_quotes_on_lead_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_quotes_on_lead_id ON public.quotes USING btree (lead_id);
+
+
+--
+-- Name: index_quotes_on_token_digest; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_quotes_on_token_digest ON public.quotes USING btree (token_digest);
+
+
+--
 -- Name: index_sessions_on_token_digest; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -871,11 +1136,40 @@ CREATE UNIQUE INDEX index_users_on_phone ON public.users USING btree (phone) WHE
 
 
 --
+-- Name: contracts contracts_frozen_once_signed; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER contracts_frozen_once_signed BEFORE DELETE OR UPDATE ON public.contracts FOR EACH ROW EXECUTE FUNCTION public.forbid_signed_contract_changes();
+
+
+--
+-- Name: quote_items quote_items_frozen_once_accepted; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER quote_items_frozen_once_accepted BEFORE INSERT OR DELETE OR UPDATE ON public.quote_items FOR EACH ROW EXECUTE FUNCTION public.forbid_accepted_quote_item_changes();
+
+
+--
+-- Name: quotes quotes_frozen_once_accepted; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER quotes_frozen_once_accepted BEFORE DELETE OR UPDATE ON public.quotes FOR EACH ROW EXECUTE FUNCTION public.forbid_accepted_quote_changes();
+
+
+--
 -- Name: messages fk_rails_083d4489a7; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.messages
     ADD CONSTRAINT fk_rails_083d4489a7 FOREIGN KEY (conversation_id, business_id) REFERENCES public.conversations(id, business_id);
+
+
+--
+-- Name: job_costs fk_rails_0c7f640658; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_costs
+    ADD CONSTRAINT fk_rails_0c7f640658 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
 
 
 --
@@ -927,6 +1221,14 @@ ALTER TABLE ONLY public.conversations
 
 
 --
+-- Name: quotes fk_rails_4d07b0b28d; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotes
+    ADD CONSTRAINT fk_rails_4d07b0b28d FOREIGN KEY (created_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
 -- Name: leads fk_rails_4e4210c325; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -967,11 +1269,27 @@ ALTER TABLE ONLY public.appointments
 
 
 --
+-- Name: job_costs fk_rails_59d50a32d1; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_costs
+    ADD CONSTRAINT fk_rails_59d50a32d1 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
 -- Name: outbound_messages fk_rails_5b34023d73; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.outbound_messages
     ADD CONSTRAINT fk_rails_5b34023d73 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
+-- Name: contracts fk_rails_6c6a2f6411; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contracts
+    ADD CONSTRAINT fk_rails_6c6a2f6411 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
 
 
 --
@@ -996,6 +1314,14 @@ ALTER TABLE ONLY public.sessions
 
 ALTER TABLE ONLY public.invitations
     ADD CONSTRAINT fk_rails_7f80f50dbc FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
+-- Name: contracts fk_rails_7f9e013711; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contracts
+    ADD CONSTRAINT fk_rails_7f9e013711 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
 
 
 --
@@ -1087,6 +1413,14 @@ ALTER TABLE ONLY public.appointments
 
 
 --
+-- Name: quote_items fk_rails_b28ccd5e35; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quote_items
+    ADD CONSTRAINT fk_rails_b28ccd5e35 FOREIGN KEY (quote_id, business_id) REFERENCES public.quotes(id, business_id) ON DELETE CASCADE;
+
+
+--
 -- Name: messages fk_rails_b44cadb953; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1095,11 +1429,27 @@ ALTER TABLE ONLY public.messages
 
 
 --
+-- Name: quotes fk_rails_be2c911c9c; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotes
+    ADD CONSTRAINT fk_rails_be2c911c9c FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
+
+
+--
 -- Name: notes fk_rails_c57a878880; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.notes
     ADD CONSTRAINT fk_rails_c57a878880 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
+
+
+--
+-- Name: quote_items fk_rails_c976806706; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quote_items
+    ADD CONSTRAINT fk_rails_c976806706 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
 
 
 --
@@ -1116,6 +1466,30 @@ ALTER TABLE ONLY public.follow_ups
 
 ALTER TABLE ONLY public.activities
     ADD CONSTRAINT fk_rails_d4f1085fbd FOREIGN KEY (actor_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: contracts fk_rails_d6942a7d49; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contracts
+    ADD CONSTRAINT fk_rails_d6942a7d49 FOREIGN KEY (quote_id, business_id) REFERENCES public.quotes(id, business_id);
+
+
+--
+-- Name: contracts fk_rails_d6e4b5b205; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contracts
+    ADD CONSTRAINT fk_rails_d6e4b5b205 FOREIGN KEY (created_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: quotes fk_rails_d70dd27f25; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotes
+    ADD CONSTRAINT fk_rails_d70dd27f25 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
 
 
 --
@@ -1140,6 +1514,14 @@ ALTER TABLE ONLY public.conversations
 
 ALTER TABLE ONLY public.follow_ups
     ADD CONSTRAINT fk_rails_d93e073010 FOREIGN KEY (assigned_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: job_costs fk_rails_e94fd397d2; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_costs
+    ADD CONSTRAINT fk_rails_e94fd397d2 FOREIGN KEY (created_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
 
 --
@@ -1224,6 +1606,19 @@ CREATE POLICY channel_accounts_tenant ON public.channel_accounts USING ((busines
 
 
 --
+-- Name: contracts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.contracts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: contracts contracts_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY contracts_tenant ON public.contracts USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
 -- Name: conversations; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1286,6 +1681,19 @@ ALTER TABLE public.invitations ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY invitations_tenant ON public.invitations USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
+-- Name: job_costs; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.job_costs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: job_costs job_costs_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY job_costs_tenant ON public.job_costs USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
 
 
 --
@@ -1354,12 +1762,39 @@ CREATE POLICY outbound_messages_tenant ON public.outbound_messages USING ((busin
 
 
 --
+-- Name: quote_items; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.quote_items ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: quote_items quote_items_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY quote_items_tenant ON public.quote_items USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
+-- Name: quotes; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.quotes ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: quotes quotes_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY quotes_tenant ON public.quotes USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
 -- PostgreSQL database dump complete
 --
 
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260930000006'),
 ('20260930000005'),
 ('20260930000004'),
 ('20260930000003'),

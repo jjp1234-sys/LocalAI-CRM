@@ -90,6 +90,22 @@ The product runs over WhatsApp: customers message a business's number and become
   - Active Record encryption keys (`AR_ENCRYPTION_*`, from `bin/rails db:encryption:init`).
   - The Solid Queue database (`backend_production_queue`), and the job worker: `bin/jobs`, or `SOLID_QUEUE_IN_PUMA=1`.
 
+## Quotes, contracts and job costs
+
+- **Over WhatsApp:**
+  - `quote 2`, then `add 4 speakers 350` / `remove 2` / `tax 7`, then `send quote`.
+  - `contract 2` makes the contract from the lead's accepted quote.
+  - `docs 2` lists a lead's documents with their links.
+  - `cost 2 1800 speakers` records a job cost; profit is value minus costs.
+- **The customer's side:**
+  - Each quote and contract has a private link (`/q/…`, `/c/…`) to a printable page. Print saves a PDF.
+  - Customers accept a quote by typing their name, and sign a contract by typing their name and agreeing to sign electronically.
+  - We keep the time, IP, browser and a SHA-256 of the signed text.
+- **What happens on accept and sign:** accepting sets the lead's value. Signing marks it won and notifies the team.
+- **Nothing changes after agreement:** once accepted or signed, database triggers refuse any change to the quote, its items or the contract, from anyone.
+- **Contract terms:** each business sets its own (`contract_terms`). The built-in default is a short generic template, flagged in the text as needing a lawyer's review.
+- **Production needs `APP_PUBLIC_URL`,** the base URL for customer links.
+
 ## Known gaps
 
 - **Email addresses aren't verified.** Whoever registers an address first can accept invitations sent to it. Signup still reveals that an address is taken, by failing where a new address would succeed. Both need the app to send email.
@@ -97,4 +113,5 @@ The product runs over WhatsApp: customers message a business's number and become
 - **The `frontdesk_app` role can read every column of `users`, including password hashes.** It never does in practice, but a column-level grant would be stricter.
 - **WhatsApp's 24-hour rule.** Messages the business starts need Meta-approved templates, which aren't set up yet. That covers digests, reminders, alerts to staff who haven't texted in a day, and replies to customers who went quiet. The simulator doesn't enforce this; real WhatsApp will.
 - **No Google/Outlook calendar sync, SMS or email yet.**
+- **Quotes don't have deposits, payment links or version history yet.** An accepted quote is final; changes need a new quote.
 - **No CORS.** Cross-origin browser requests are refused until the front end's origin is known and allowed.

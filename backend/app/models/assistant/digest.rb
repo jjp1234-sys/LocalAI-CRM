@@ -68,11 +68,14 @@ module Assistant
     def money
       return nil unless @manager
 
-      won = Lead.where(won_at: @now.beginning_of_month..).sum(:value_cents)
+      won_leads = Lead.where(won_at: @now.beginning_of_month..)
+      won = won_leads.sum(:value_cents)
+      costs = JobCost.where(lead_id: won_leads.select(:id)).sum(:amount_cents)
       pipeline = Lead.active.where(status: %w[new contacted qualified appointment]).sum(:value_cents)
       return nil if won.zero? && pipeline.zero?
 
-      "💰 Won this month: *#{Money.format(won)}* · In play: #{Money.format(pipeline)}"
+      profit = costs.positive? ? " (profit #{Money.format(won - costs)})" : ""
+      "💰 Won this month: *#{Money.format(won)}*#{profit} · In play: #{Money.format(pipeline)}"
     end
   end
 end

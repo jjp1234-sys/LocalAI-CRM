@@ -42,3 +42,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_sessions TO frontdesk_app;
 -- Notes are append-only; follow-ups are completed/rescheduled, never deleted.
 GRANT SELECT, INSERT ON notes TO frontdesk_app;
 GRANT SELECT, INSERT, UPDATE ON follow_ups TO frontdesk_app;
+
+-- Job costs are a record (added, not edited). Quotes and contracts are edited
+-- while drafts; database triggers freeze them once accepted/signed.
+GRANT SELECT, INSERT ON job_costs TO frontdesk_app;
+GRANT SELECT, INSERT, UPDATE ON quotes, contracts TO frontdesk_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON quote_items TO frontdesk_app;

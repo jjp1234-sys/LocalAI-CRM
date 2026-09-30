@@ -8,7 +8,7 @@ module Serializers
   end
 
   def business(business)
-    business.slice(:id, :name, :slug, :time_zone, :created_at, :updated_at)
+    business.slice(:id, :name, :slug, :time_zone, :default_tax_rate_bps, :quote_valid_days, :contract_terms, :created_at, :updated_at)
   end
 
   def membership(membership)
@@ -62,6 +62,25 @@ module Serializers
       :id, :lead_id, :assigned_user_id, :created_by_id, :body, :due_at,
       :reminded_at, :completed_at, :cancelled_at, :created_at, :updated_at
     )
+  end
+
+  def job_cost(cost)
+    cost.slice(:id, :lead_id, :description, :amount_cents, :created_by_id, :created_at)
+  end
+
+  # Staff-facing: includes the customer link. Never includes the token digest.
+  def quote(quote)
+    quote.slice(:id, :lead_id, :number, :status, :tax_rate_bps, :notes, :valid_until, :sent_at, :viewed_at,
+                :accepted_at, :accepted_name, :declined_at, :created_at, :updated_at).merge(
+      label: quote.label, url: quote.public_url,
+      subtotal_cents: quote.subtotal_cents, tax_cents: quote.tax_cents, total_cents: quote.total_cents,
+      items: quote.items.map { |i| i.slice(:id, :description, :quantity, :unit_price_cents).merge(amount_cents: i.amount_cents) }
+    )
+  end
+
+  def contract(contract)
+    contract.slice(:id, :lead_id, :quote_id, :number, :status, :body, :sent_at, :viewed_at, :signed_at,
+                   :signer_name, :signed_body_sha256, :created_at, :updated_at).merge(label: contract.label, url: contract.public_url)
   end
 
   def activity(activity)

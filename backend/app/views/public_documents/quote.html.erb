@@ -1,0 +1,43 @@
+<% content_for :title, "#{quote.label} · #{business.name}" %>
+<% error = local_assigns[:error] %>
+<div class="doc">
+  <% if quote.status_accepted? %>
+    <div class="banner ok">Accepted by <%= quote.accepted_name %> on <%= quote.accepted_at.in_time_zone(business.time_zone).strftime("%B %-d, %Y") %>. Thank you!</div>
+  <% elsif quote.status_declined? %>
+    <div class="banner bad">This quote was declined.</div>
+  <% elsif quote.status_void? %>
+    <div class="banner bad">This quote has been withdrawn.</div>
+  <% elsif quote.status_draft? %>
+    <div class="banner info">Draft: not sent to the customer yet.</div>
+  <% elsif quote.expired? %>
+    <div class="banner bad">This quote expired on <%= quote.valid_until.strftime("%B %-d, %Y") %>.</div>
+  <% end %>
+  <% if error %><div class="banner bad"><%= error %></div><% end %>
+
+  <h1><%= business.name %></h1>
+  <div class="muted">Quote <%= quote.label %> for <%= quote.lead.name %><% if quote.valid_until %> · valid until <%= quote.valid_until.strftime("%B %-d, %Y") %><% end %></div>
+
+  <table>
+    <thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Price</th><th class="n">Amount</th></tr></thead>
+    <tbody>
+      <% quote.items.each do |item| %>
+        <tr><td><%= item.description %></td><td class="n"><%= item.quantity == item.quantity.to_i ? item.quantity.to_i : item.quantity %></td><td class="n"><%= Money.format(item.unit_price_cents) %></td><td class="n"><%= Money.format(item.amount_cents) %></td></tr>
+      <% end %>
+    </tbody>
+    <tfoot>
+      <tr><td colspan="3" class="n">Subtotal</td><td class="n"><%= Money.format(quote.subtotal_cents) %></td></tr>
+      <% if quote.tax_rate_bps.positive? %><tr><td colspan="3" class="n">Tax (<%= quote.tax_rate_bps / 100.0 %>%)</td><td class="n"><%= Money.format(quote.tax_cents) %></td></tr><% end %>
+      <tr class="total"><td colspan="3" class="n">Total</td><td class="n"><%= Money.format(quote.total_cents) %></td></tr>
+    </tfoot>
+  </table>
+  <% if quote.notes.present? %><p class="body"><%= quote.notes %></p><% end %>
+
+  <% if quote.status_sent? && !quote.expired? %>
+    <form method="post" action="/q/<%= params[:token] %>/accept">
+      <label for="name">Type your full name to accept this quote</label>
+      <input type="text" id="name" name="name" autocomplete="name" required minlength="2" maxlength="120">
+      <button type="submit">Accept quote</button>
+    </form>
+    <form method="post" action="/q/<%= params[:token] %>/decline"><button type="submit" class="secondary">Decline</button></form>
+  <% end %>
+</div>

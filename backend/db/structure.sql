@@ -77,6 +77,20 @@ CREATE TABLE public.ar_internal_metadata (
 
 
 --
+-- Name: assistant_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.assistant_sessions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    state jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
 -- Name: businesses; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -89,6 +103,24 @@ CREATE TABLE public.businesses (
     updated_at timestamp(6) without time zone NOT NULL,
     CONSTRAINT businesses_name_length CHECK (((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 120))),
     CONSTRAINT businesses_slug_format CHECK (((slug)::text ~ '^[a-z0-9]([a-z0-9-]{1,61})[a-z0-9]$'::text))
+);
+
+
+--
+-- Name: channel_accounts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.channel_accounts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    provider character varying NOT NULL,
+    phone_number_id character varying NOT NULL,
+    display_phone character varying NOT NULL,
+    access_token text,
+    active boolean DEFAULT true NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT channel_accounts_provider_valid CHECK (((provider)::text = ANY ((ARRAY['whatsapp_cloud'::character varying, 'simulator'::character varying])::text[])))
 );
 
 
@@ -106,8 +138,49 @@ CREATE TABLE public.conversations (
     last_message_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    CONSTRAINT conversations_channel_valid CHECK (((channel)::text = ANY ((ARRAY['sms'::character varying, 'web_chat'::character varying, 'email'::character varying, 'phone'::character varying, 'facebook'::character varying, 'instagram'::character varying, 'other'::character varying])::text[]))),
+    CONSTRAINT conversations_channel_valid CHECK (((channel)::text = ANY ((ARRAY['sms'::character varying, 'whatsapp'::character varying, 'web_chat'::character varying, 'email'::character varying, 'phone'::character varying, 'facebook'::character varying, 'instagram'::character varying, 'other'::character varying])::text[]))),
     CONSTRAINT conversations_status_valid CHECK (((status)::text = ANY ((ARRAY['open'::character varying, 'closed'::character varying])::text[])))
+);
+
+
+--
+-- Name: follow_ups; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.follow_ups (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    lead_id uuid,
+    assigned_user_id uuid NOT NULL,
+    created_by_id uuid,
+    body character varying NOT NULL,
+    due_at timestamp(6) without time zone NOT NULL,
+    reminded_at timestamp(6) without time zone,
+    completed_at timestamp(6) without time zone,
+    cancelled_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT follow_ups_body_length CHECK (((char_length((body)::text) >= 1) AND (char_length((body)::text) <= 500))),
+    CONSTRAINT follow_ups_single_outcome CHECK ((NOT ((completed_at IS NOT NULL) AND (cancelled_at IS NOT NULL))))
+);
+
+
+--
+-- Name: inbound_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inbound_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    channel_account_id uuid NOT NULL,
+    kind character varying NOT NULL,
+    provider_event_id character varying NOT NULL,
+    from_phone character varying,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    processed_at timestamp(6) without time zone,
+    error character varying,
+    created_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT inbound_events_kind_valid CHECK (((kind)::text = ANY ((ARRAY['message'::character varying, 'status'::character varying])::text[])))
 );
 
 
@@ -172,13 +245,19 @@ CREATE TABLE public.leads (
     last_activity_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    phone_e164 character varying,
+    value_cents bigint,
+    acquisition_cost_cents bigint,
+    won_at timestamp(6) without time zone,
     CONSTRAINT leads_contact_present CHECK (((email IS NOT NULL) OR (phone IS NOT NULL))),
+    CONSTRAINT leads_cost_range CHECK (((acquisition_cost_cents IS NULL) OR ((acquisition_cost_cents >= 0) AND (acquisition_cost_cents <= '100000000000'::bigint)))),
     CONSTRAINT leads_external_id_length CHECK ((char_length((external_id)::text) <= 200)),
     CONSTRAINT leads_name_length CHECK (((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 120))),
     CONSTRAINT leads_need_length CHECK ((char_length(need) <= 2000)),
     CONSTRAINT leads_score_range CHECK (((score IS NULL) OR ((score >= 0) AND (score <= 100)))),
-    CONSTRAINT leads_source_valid CHECK (((source)::text = ANY ((ARRAY['website'::character varying, 'facebook'::character varying, 'instagram'::character varying, 'google'::character varying, 'referral'::character varying, 'phone'::character varying, 'walk_in'::character varying, 'manual'::character varying, 'other'::character varying])::text[]))),
-    CONSTRAINT leads_status_valid CHECK (((status)::text = ANY ((ARRAY['new'::character varying, 'contacted'::character varying, 'qualified'::character varying, 'appointment'::character varying, 'won'::character varying, 'lost'::character varying])::text[])))
+    CONSTRAINT leads_source_valid CHECK (((source)::text = ANY ((ARRAY['website'::character varying, 'facebook'::character varying, 'instagram'::character varying, 'google'::character varying, 'whatsapp'::character varying, 'referral'::character varying, 'phone'::character varying, 'walk_in'::character varying, 'manual'::character varying, 'purchased'::character varying, 'other'::character varying])::text[]))),
+    CONSTRAINT leads_status_valid CHECK (((status)::text = ANY ((ARRAY['new'::character varying, 'contacted'::character varying, 'qualified'::character varying, 'appointment'::character varying, 'won'::character varying, 'lost'::character varying])::text[]))),
+    CONSTRAINT leads_value_range CHECK (((value_cents IS NULL) OR ((value_cents >= 0) AND (value_cents <= '100000000000'::bigint))))
 );
 
 
@@ -218,6 +297,48 @@ CREATE TABLE public.messages (
 
 
 --
+-- Name: notes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    lead_id uuid NOT NULL,
+    author_user_id uuid,
+    body text NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT notes_body_length CHECK (((char_length(body) >= 1) AND (char_length(body) <= 5000)))
+);
+
+
+--
+-- Name: outbound_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.outbound_messages (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    channel_account_id uuid NOT NULL,
+    message_id uuid,
+    lead_id uuid,
+    to_phone character varying NOT NULL,
+    kind character varying DEFAULT 'text'::character varying NOT NULL,
+    body text NOT NULL,
+    buttons jsonb DEFAULT '[]'::jsonb NOT NULL,
+    status character varying DEFAULT 'pending'::character varying NOT NULL,
+    provider_message_id character varying,
+    attempts integer DEFAULT 0 NOT NULL,
+    last_error character varying,
+    sent_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT outbound_messages_body_length CHECK (((char_length(body) >= 1) AND (char_length(body) <= 4096))),
+    CONSTRAINT outbound_messages_kind_valid CHECK (((kind)::text = ANY ((ARRAY['text'::character varying, 'buttons'::character varying])::text[]))),
+    CONSTRAINT outbound_messages_status_valid CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'sent'::character varying, 'delivered'::character varying, 'read'::character varying, 'failed'::character varying])::text[])))
+);
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -253,9 +374,11 @@ CREATE TABLE public.users (
     name character varying NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    phone character varying,
     CONSTRAINT users_email_length CHECK ((char_length((email_address)::text) <= 254)),
     CONSTRAINT users_email_lowercase CHECK (((email_address)::text = lower((email_address)::text))),
-    CONSTRAINT users_name_length CHECK (((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 120)))
+    CONSTRAINT users_name_length CHECK (((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 120))),
+    CONSTRAINT users_phone_e164 CHECK (((phone)::text ~ '^\+[1-9][0-9]{6,14}$'::text))
 );
 
 
@@ -284,6 +407,14 @@ ALTER TABLE ONLY public.ar_internal_metadata
 
 
 --
+-- Name: assistant_sessions assistant_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.assistant_sessions
+    ADD CONSTRAINT assistant_sessions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: businesses businesses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -292,11 +423,35 @@ ALTER TABLE ONLY public.businesses
 
 
 --
+-- Name: channel_accounts channel_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.channel_accounts
+    ADD CONSTRAINT channel_accounts_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: conversations conversations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.conversations
     ADD CONSTRAINT conversations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: follow_ups follow_ups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.follow_ups
+    ADD CONSTRAINT follow_ups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: inbound_events inbound_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inbound_events
+    ADD CONSTRAINT inbound_events_pkey PRIMARY KEY (id);
 
 
 --
@@ -340,6 +495,22 @@ ALTER TABLE ONLY public.messages
 
 
 --
+-- Name: notes notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notes
+    ADD CONSTRAINT notes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: outbound_messages outbound_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbound_messages
+    ADD CONSTRAINT outbound_messages_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -364,10 +535,31 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: idx_on_business_id_assigned_user_id_due_at_f0daf7d57f; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_on_business_id_assigned_user_id_due_at_f0daf7d57f ON public.follow_ups USING btree (business_id, assigned_user_id, due_at);
+
+
+--
+-- Name: idx_on_business_id_from_phone_created_at_2a81b6a486; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_on_business_id_from_phone_created_at_2a81b6a486 ON public.inbound_events USING btree (business_id, from_phone, created_at);
+
+
+--
 -- Name: idx_on_business_id_status_last_message_at_d4a1d84710; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_on_business_id_status_last_message_at_d4a1d84710 ON public.conversations USING btree (business_id, status, last_message_at);
+
+
+--
+-- Name: idx_on_business_id_to_phone_created_at_61a5255b6e; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_on_business_id_to_phone_created_at_61a5255b6e ON public.outbound_messages USING btree (business_id, to_phone, created_at);
 
 
 --
@@ -406,10 +598,45 @@ CREATE INDEX index_appointments_on_lead_id ON public.appointments USING btree (l
 
 
 --
+-- Name: index_assistant_sessions_on_business_id_and_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_assistant_sessions_on_business_id_and_user_id ON public.assistant_sessions USING btree (business_id, user_id);
+
+
+--
+-- Name: index_assistant_sessions_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_assistant_sessions_on_user_id ON public.assistant_sessions USING btree (user_id);
+
+
+--
 -- Name: index_businesses_on_slug; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX index_businesses_on_slug ON public.businesses USING btree (slug);
+
+
+--
+-- Name: index_channel_accounts_on_business_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_channel_accounts_on_business_id ON public.channel_accounts USING btree (business_id);
+
+
+--
+-- Name: index_channel_accounts_on_id_and_business_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_channel_accounts_on_id_and_business_id ON public.channel_accounts USING btree (id, business_id);
+
+
+--
+-- Name: index_channel_accounts_on_phone_number_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_channel_accounts_on_phone_number_id ON public.channel_accounts USING btree (phone_number_id);
 
 
 --
@@ -431,6 +658,41 @@ CREATE UNIQUE INDEX index_conversations_on_id_and_business_id ON public.conversa
 --
 
 CREATE INDEX index_conversations_on_lead_id ON public.conversations USING btree (lead_id);
+
+
+--
+-- Name: index_follow_ups_awaiting_reminder; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_follow_ups_awaiting_reminder ON public.follow_ups USING btree (due_at) WHERE ((reminded_at IS NULL) AND (completed_at IS NULL) AND (cancelled_at IS NULL));
+
+
+--
+-- Name: index_follow_ups_on_assigned_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_follow_ups_on_assigned_user_id ON public.follow_ups USING btree (assigned_user_id);
+
+
+--
+-- Name: index_follow_ups_on_created_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_follow_ups_on_created_by_id ON public.follow_ups USING btree (created_by_id);
+
+
+--
+-- Name: index_follow_ups_on_lead_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_follow_ups_on_lead_id ON public.follow_ups USING btree (lead_id);
+
+
+--
+-- Name: index_inbound_events_on_provider_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_inbound_events_on_provider_event_id ON public.inbound_events USING btree (provider_event_id);
 
 
 --
@@ -483,6 +745,13 @@ CREATE INDEX index_leads_on_assigned_user_id ON public.leads USING btree (assign
 
 
 --
+-- Name: index_leads_on_business_id_and_phone_e164; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_leads_on_business_id_and_phone_e164 ON public.leads USING btree (business_id, phone_e164);
+
+
+--
 -- Name: index_leads_on_business_id_and_source_and_external_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -494,6 +763,13 @@ CREATE UNIQUE INDEX index_leads_on_business_id_and_source_and_external_id ON pub
 --
 
 CREATE INDEX index_leads_on_business_id_and_status_and_created_at ON public.leads USING btree (business_id, status, created_at);
+
+
+--
+-- Name: index_leads_on_business_id_and_won_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_leads_on_business_id_and_won_at ON public.leads USING btree (business_id, won_at);
 
 
 --
@@ -532,6 +808,41 @@ CREATE INDEX index_messages_on_sender_user_id ON public.messages USING btree (se
 
 
 --
+-- Name: index_notes_on_author_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_notes_on_author_user_id ON public.notes USING btree (author_user_id);
+
+
+--
+-- Name: index_notes_on_lead_id_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_notes_on_lead_id_and_created_at ON public.notes USING btree (lead_id, created_at);
+
+
+--
+-- Name: index_outbound_messages_on_message_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_outbound_messages_on_message_id ON public.outbound_messages USING btree (message_id);
+
+
+--
+-- Name: index_outbound_messages_on_provider_message_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_outbound_messages_on_provider_message_id ON public.outbound_messages USING btree (provider_message_id) WHERE (provider_message_id IS NOT NULL);
+
+
+--
+-- Name: index_outbound_messages_on_status_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_outbound_messages_on_status_and_created_at ON public.outbound_messages USING btree (status, created_at);
+
+
+--
 -- Name: index_sessions_on_token_digest; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -553,6 +864,13 @@ CREATE UNIQUE INDEX index_users_on_email_address ON public.users USING btree (em
 
 
 --
+-- Name: index_users_on_phone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_users_on_phone ON public.users USING btree (phone) WHERE (phone IS NOT NULL);
+
+
+--
 -- Name: messages fk_rails_083d4489a7; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -561,11 +879,35 @@ ALTER TABLE ONLY public.messages
 
 
 --
+-- Name: outbound_messages fk_rails_119dcdbe29; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbound_messages
+    ADD CONSTRAINT fk_rails_119dcdbe29 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
+
+
+--
 -- Name: messages fk_rails_3197d016f7; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.messages
     ADD CONSTRAINT fk_rails_3197d016f7 FOREIGN KEY (sender_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: outbound_messages fk_rails_3915211714; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbound_messages
+    ADD CONSTRAINT fk_rails_3915211714 FOREIGN KEY (message_id) REFERENCES public.messages(id) ON DELETE SET NULL;
+
+
+--
+-- Name: inbound_events fk_rails_3d24060cb0; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inbound_events
+    ADD CONSTRAINT fk_rails_3d24060cb0 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
 
 
 --
@@ -601,11 +943,43 @@ ALTER TABLE ONLY public.intake_keys
 
 
 --
+-- Name: notes fk_rails_55e2791a07; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notes
+    ADD CONSTRAINT fk_rails_55e2791a07 FOREIGN KEY (author_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: assistant_sessions fk_rails_565ace800e; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.assistant_sessions
+    ADD CONSTRAINT fk_rails_565ace800e FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: appointments fk_rails_589d62205e; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.appointments
     ADD CONSTRAINT fk_rails_589d62205e FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
+-- Name: outbound_messages fk_rails_5b34023d73; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbound_messages
+    ADD CONSTRAINT fk_rails_5b34023d73 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
+-- Name: notes fk_rails_748111e3dd; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notes
+    ADD CONSTRAINT fk_rails_748111e3dd FOREIGN KEY (business_id) REFERENCES public.businesses(id);
 
 
 --
@@ -625,6 +999,22 @@ ALTER TABLE ONLY public.invitations
 
 
 --
+-- Name: outbound_messages fk_rails_82890691a1; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbound_messages
+    ADD CONSTRAINT fk_rails_82890691a1 FOREIGN KEY (channel_account_id, business_id) REFERENCES public.channel_accounts(id, business_id);
+
+
+--
+-- Name: follow_ups fk_rails_855c6701d2; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.follow_ups
+    ADD CONSTRAINT fk_rails_855c6701d2 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
 -- Name: activities fk_rails_90e481b9ed; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -638,6 +1028,22 @@ ALTER TABLE ONLY public.activities
 
 ALTER TABLE ONLY public.memberships
     ADD CONSTRAINT fk_rails_99326fb65d FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: follow_ups fk_rails_9a9989f30f; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.follow_ups
+    ADD CONSTRAINT fk_rails_9a9989f30f FOREIGN KEY (created_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: channel_accounts fk_rails_9abdbdc879; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.channel_accounts
+    ADD CONSTRAINT fk_rails_9abdbdc879 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
 
 
 --
@@ -665,6 +1071,14 @@ ALTER TABLE ONLY public.intake_keys
 
 
 --
+-- Name: assistant_sessions fk_rails_ad593a141e; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.assistant_sessions
+    ADD CONSTRAINT fk_rails_ad593a141e FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
 -- Name: appointments fk_rails_afc391ba1a; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -678,6 +1092,22 @@ ALTER TABLE ONLY public.appointments
 
 ALTER TABLE ONLY public.messages
     ADD CONSTRAINT fk_rails_b44cadb953 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
+-- Name: notes fk_rails_c57a878880; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notes
+    ADD CONSTRAINT fk_rails_c57a878880 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
+
+
+--
+-- Name: follow_ups fk_rails_ce23273073; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.follow_ups
+    ADD CONSTRAINT fk_rails_ce23273073 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
 
 
 --
@@ -702,6 +1132,22 @@ ALTER TABLE ONLY public.invitations
 
 ALTER TABLE ONLY public.conversations
     ADD CONSTRAINT fk_rails_d8825cdf80 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
+
+
+--
+-- Name: follow_ups fk_rails_d93e073010; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.follow_ups
+    ADD CONSTRAINT fk_rails_d93e073010 FOREIGN KEY (assigned_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: inbound_events fk_rails_f647b8d021; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inbound_events
+    ADD CONSTRAINT fk_rails_f647b8d021 FOREIGN KEY (channel_account_id, business_id) REFERENCES public.channel_accounts(id, business_id);
 
 
 --
@@ -739,6 +1185,19 @@ CREATE POLICY appointments_tenant ON public.appointments USING ((business_id = p
 
 
 --
+-- Name: assistant_sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.assistant_sessions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: assistant_sessions assistant_sessions_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY assistant_sessions_tenant ON public.assistant_sessions USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
 -- Name: businesses; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -752,6 +1211,19 @@ CREATE POLICY businesses_tenant ON public.businesses USING ((id = public.current
 
 
 --
+-- Name: channel_accounts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.channel_accounts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: channel_accounts channel_accounts_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY channel_accounts_tenant ON public.channel_accounts USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
 -- Name: conversations; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -762,6 +1234,32 @@ ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY conversations_tenant ON public.conversations USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
+-- Name: follow_ups; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.follow_ups ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: follow_ups follow_ups_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY follow_ups_tenant ON public.follow_ups USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
+-- Name: inbound_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.inbound_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: inbound_events inbound_events_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY inbound_events_tenant ON public.inbound_events USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
 
 
 --
@@ -830,12 +1328,41 @@ CREATE POLICY messages_tenant ON public.messages USING ((business_id = public.cu
 
 
 --
+-- Name: notes; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notes notes_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY notes_tenant ON public.notes USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
+-- Name: outbound_messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.outbound_messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: outbound_messages outbound_messages_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY outbound_messages_tenant ON public.outbound_messages USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
 -- PostgreSQL database dump complete
 --
 
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260930000005'),
+('20260930000004'),
+('20260930000003'),
 ('20260930000002'),
 ('20260930000001');
 

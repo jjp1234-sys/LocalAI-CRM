@@ -1,0 +1,14 @@
+# Simulator numbers: nothing is sent anywhere, so no access token is needed.
+acme_whatsapp:
+  business: acme
+  provider: simulator
+  phone_number_id: "100000000000001"
+  display_phone: "+13055550100"
+  active: true
+
+globex_whatsapp:
+  business: globex
+  provider: simulator
+  phone_number_id: "200000000000002"
+  display_phone: "+13125550100"
+  active: true

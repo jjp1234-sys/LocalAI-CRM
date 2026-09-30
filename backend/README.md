@@ -68,10 +68,33 @@ All endpoints are JSON under `/api/v1`. Authenticated endpoints need `Authorizat
 
 Roles: **owner** (everything), **admin** (team and intake keys, but not owners), **agent** (leads, conversations, appointments).
 
+## WhatsApp
+
+The product runs over WhatsApp: customers message a business's number and become leads, and the team runs the business by texting the same number. Staff are recognised by their saved phone number.
+
+- **Try it locally:** `bin/rails db:seed`, start the server, open http://localhost:3000/dev/whatsapp. The simulator has two phones (owner and customer) and goes through the real, signed webhook. Development only.
+- **Commands** (scripted, no AI yet): `today` (the daily digest), `leads`, `lead 2`, `reply 2 …` (or swipe-reply to a notification), `book 2 thu 2pm`, `week`, `note 2 …`, `remind 2 fri 10am …`, `tasks` / `done 1`, `value 2 4500`, `won 2 4500`. Send `help` for the list.
+- **Behaviour:**
+  - Notifications go to the lead's assigned person, otherwise owners and admins.
+  - After one notification, more messages from the same customer stay quiet for 15 minutes unless they contain a word like "urgent", "cancel" or "price".
+  - A returning won/lost customer prompts "Reopen / New lead / Leave it".
+  - Booking confirms to the customer automatically.
+  - Reminders arrive when due, and a digest goes out at 7:30 local time.
+- **How it works:**
+  - Webhooks are signature-checked and stored once per Meta message ID (`inbound_events`).
+  - Processing runs in jobs.
+  - Every message we send goes through an outbox (`outbound_messages`) until Meta confirms it.
+  - `bin/rails whatsapp:redeliver` re-queues anything whose job was lost, and runs every 5 minutes in production.
+- **Production needs:**
+  - `WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN`.
+  - Active Record encryption keys (`AR_ENCRYPTION_*`, from `bin/rails db:encryption:init`).
+  - The Solid Queue database (`backend_production_queue`), and the job worker: `bin/jobs`, or `SOLID_QUEUE_IN_PUMA=1`.
+
 ## Known gaps
 
 - **Email addresses aren't verified.** Whoever registers an address first can accept invitations sent to it. Signup still reveals that an address is taken, by failing where a new address would succeed. Both need the app to send email.
 - **Rate-limit counters live in each server process.** That's fine for one server; more than one needs a shared store such as Redis or Solid Cache.
 - **The `frontdesk_app` role can read every column of `users`, including password hashes.** It never does in practice, but a column-level grant would be stricter.
-- **No SMS, email, Meta or calendar integrations yet.** Messages are stored, not sent.
+- **WhatsApp's 24-hour rule.** Messages the business starts need Meta-approved templates, which aren't set up yet. That covers digests, reminders, alerts to staff who haven't texted in a day, and replies to customers who went quiet. The simulator doesn't enforce this; real WhatsApp will.
+- **No Google/Outlook calendar sync, SMS or email yet.**
 - **No CORS.** Cross-origin browser requests are refused until the front end's origin is known and allowed.

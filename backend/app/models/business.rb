@@ -6,6 +6,12 @@ class Business < ApplicationRecord
   has_many :conversations, dependent: :restrict_with_error
   has_many :appointments, dependent: :restrict_with_error
   has_many :activities, dependent: :restrict_with_error
+  has_many :channel_accounts, dependent: :restrict_with_error
+
+  # The number the business's WhatsApp messages go out from.
+  def whatsapp_account
+    channel_accounts.active.order(:created_at).first
+  end
 
   normalizes :name, with: ->(name) { name.squish }
   normalizes :slug, with: ->(slug) { slug.strip.downcase }

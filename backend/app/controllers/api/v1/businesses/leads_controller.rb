@@ -59,7 +59,8 @@ module Api
         end
 
         def lead_params
-          params.expect(lead: [ :name, :email, :phone, :need, :source, :status, :score, :assigned_user_id ])
+          params.expect(lead: [ :name, :email, :phone, :need, :source, :status, :score, :assigned_user_id,
+                                :value_cents, :acquisition_cost_cents ])
         end
       end
     end

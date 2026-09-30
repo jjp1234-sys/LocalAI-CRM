@@ -79,7 +79,17 @@ test:
 # for a full overview on how database connection configuration can be specified.
 #
 production:
-  <<: *default
-  database: backend_production
-  username: backend
-  password: <%= ENV["BACKEND_DATABASE_PASSWORD"] %>
+  primary:
+    <<: *default
+    database: backend_production
+    username: backend
+    password: <%= ENV["BACKEND_DATABASE_PASSWORD"] %>
+  # Solid Queue's job tables, kept in their own database so job traffic
+  # doesn't compete with the app's, and the app's row-level security role
+  # never touches them.
+  queue:
+    <<: *default
+    database: backend_production_queue
+    username: backend
+    password: <%= ENV["BACKEND_DATABASE_PASSWORD"] %>
+    migrations_paths: db/queue_migrate

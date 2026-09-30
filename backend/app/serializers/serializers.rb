@@ -31,6 +31,7 @@ module Serializers
   def lead(lead)
     lead.slice(
       :id, :name, :email, :phone, :need, :source, :status, :score, :external_id,
+      :value_cents, :acquisition_cost_cents, :won_at,
       :assigned_user_id, :archived_at, :last_activity_at, :created_at, :updated_at
     )
   end
@@ -49,6 +50,17 @@ module Serializers
     appointment.slice(
       :id, :lead_id, :assigned_user_id, :kind, :status, :starts_at, :ends_at,
       :location, :notes, :created_at, :updated_at
+    )
+  end
+
+  def note(note)
+    note.slice(:id, :lead_id, :author_user_id, :body, :created_at)
+  end
+
+  def follow_up(follow_up)
+    follow_up.slice(
+      :id, :lead_id, :assigned_user_id, :created_by_id, :body, :due_at,
+      :reminded_at, :completed_at, :cancelled_at, :created_at, :updated_at
     )
   end
 

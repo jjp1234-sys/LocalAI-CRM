@@ -1,0 +1,18 @@
+# Scheduled jobs, run by Solid Queue in production.
+
+production:
+  clear_solid_queue_finished_jobs:
+    command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
+    schedule: every hour at minute 12
+  # Re-queue WhatsApp messages whose jobs were lost (see lib/tasks/whatsapp.rake).
+  whatsapp_redeliver:
+    command: "Rails.application.load_tasks unless Rake::Task.task_defined?('whatsapp:redeliver'); Rake::Task['whatsapp:redeliver'].tap(&:reenable).invoke"
+    schedule: every 5 minutes
+  # Follow-up reminders, sent the minute they're due.
+  follow_up_reminders:
+    class: FollowUpRemindersJob
+    schedule: every minute
+  # The morning digest; each run sends to anyone who hasn't had today's yet.
+  daily_digest:
+    class: DailyDigestJob
+    schedule: every 15 minutes

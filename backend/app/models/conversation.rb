@@ -2,7 +2,7 @@ class Conversation < ApplicationRecord
   include TenantOwned
   include Tracked
 
-  CHANNELS = %w[sms web_chat email phone facebook instagram other].freeze
+  CHANNELS = %w[sms whatsapp web_chat email phone facebook instagram other].freeze
 
   belongs_to :lead
   belongs_to :assigned_user, class_name: "User", optional: true

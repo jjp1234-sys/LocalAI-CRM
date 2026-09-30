@@ -13,7 +13,9 @@ module Api
       # The response contains only the lead's ID: whoever holds an intake key
       # can add leads but can't read anything back.
       class LeadsController < Api::V1::BaseController
-        SOURCES = Lead::SOURCES - %w[manual]
+        # "purchased" is reserved for leads we sell the business, so a form
+        # can't claim it and skew the report of what those leads earned.
+        SOURCES = Lead::SOURCES - %w[manual purchased]
         CHANNEL_FOR_SOURCE = { "facebook" => "facebook", "instagram" => "instagram", "website" => "web_chat" }.freeze
 
         allow_unauthenticated

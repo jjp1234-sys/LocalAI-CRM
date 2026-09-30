@@ -37,5 +37,8 @@ module Backend
     # server; running several app servers needs a shared store (Redis or
     # Solid Cache), or each one counts separately.
     config.x.rate_limit_store = ActiveSupport::Cache::MemoryStore.new
+
+    # Where customers open quote and contract links. Production must set it.
+    config.x.public_base_url = ENV.fetch("APP_PUBLIC_URL") { Rails.env.production? ? raise("Set APP_PUBLIC_URL, e.g. https://app.example.com") : "http://localhost:3000" }
   end
 end

@@ -68,10 +68,66 @@ All endpoints are JSON under `/api/v1`. Authenticated endpoints need `Authorizat
 
 Roles: **owner** (everything), **admin** (team and intake keys, but not owners), **agent** (leads, conversations, appointments).
 
+## WhatsApp
+
+The product runs over WhatsApp: customers message a business's number and become leads, and the team runs the business by texting the same number. Staff are recognised by their saved phone number.
+
+- **Try it locally:** `bin/rails db:seed`, start the server, open http://localhost:3000/dev/whatsapp. The simulator has two phones (owner and customer) and goes through the real, signed webhook. Development only.
+- **Commands** (scripted, no AI yet): `today` (the daily digest), `leads`, `lead 2`, `reply 2 …` (or swipe-reply to a notification), `book 2 thu 2pm`, `week`, `note 2 …`, `remind 2 fri 10am …`, `tasks` / `done 1`, `value 2 4500`, `won 2 4500`. Send `help` for the list.
+- **Behaviour:**
+  - Notifications go to the lead's assigned person, otherwise owners and admins.
+  - After one notification, more messages from the same customer stay quiet for 15 minutes unless they contain a word like "urgent", "cancel" or "price".
+  - A returning won/lost customer prompts "Reopen / New lead / Leave it".
+  - Booking confirms to the customer automatically.
+  - Reminders arrive when due, and a digest goes out at 7:30 local time.
+- **How it works:**
+  - Webhooks are signature-checked and stored once per Meta message ID (`inbound_events`).
+  - Processing runs in jobs.
+  - Every message we send goes through an outbox (`outbound_messages`) until Meta confirms it.
+  - `bin/rails whatsapp:redeliver` re-queues anything whose job was lost, and runs every 5 minutes in production.
+- **Production needs:**
+  - `WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN`.
+  - Active Record encryption keys (`AR_ENCRYPTION_*`, from `bin/rails db:encryption:init`).
+  - The Solid Queue database (`backend_production_queue`), and the job worker: `bin/jobs`, or `SOLID_QUEUE_IN_PUMA=1`.
+
+## Quotes, contracts and job costs
+
+- **Over WhatsApp:**
+  - `quote 2`, then `add 4 speakers 350` / `remove 2` / `tax 7`, then `send quote`.
+  - `contract 2` makes the contract from the lead's accepted quote.
+  - `docs 2` lists a lead's documents with their links.
+  - `cost 2 1800 speakers` records a job cost; profit is value minus costs.
+- **The customer's side:**
+  - Each quote and contract has a private link (`/q/…`, `/c/…`) to a printable page. Print saves a PDF.
+  - Customers accept a quote by typing their name, and sign a contract by typing their name and agreeing to sign electronically.
+  - We keep the time, IP, browser and a SHA-256 of the signed text.
+- **What happens on accept and sign:** accepting sets the lead's value. Signing marks it won and notifies the team.
+- **Nothing changes after agreement:** once accepted or signed, database triggers refuse any change to the quote, its items or the contract, from anyone.
+- **Contract terms:** each business sets its own (`contract_terms`). The built-in default is a short generic template, flagged in the text as needing a lawyer's review.
+- **Production needs `APP_PUBLIC_URL`,** the base URL for customer links.
+
+## Deposits, payments and revisions
+
+- **Deposits:** `deposit 50%` or `deposit 500` on a quote. The deposit shows on the quote and contract. Signing the contract creates the deposit request, and the signed page shows "Pay deposit".
+- **Payment links:**
+  - `request 2 balance`, `request 2 deposit` or `request 2 500 materials` sends a private link (`/p/…`).
+  - The customer pays on the provider's hosted checkout, so card details never touch this app.
+  - When the payment lands, the team is told (with the balance left) and the customer is thanked.
+  - Paid payments are frozen by a database trigger.
+- **Stripe:**
+  - Charges go directly to each business's own connected account (Stripe Connect), so the money is theirs.
+  - Needs `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, plus `payments_provider: "stripe"` and the business's `stripe_account_id`.
+  - Point a Connect webhook at `/webhooks/stripe` for `checkout.session.completed`, `checkout.session.async_payment_succeeded` and `checkout.session.expired`.
+  - Webhook signatures are checked, events older than 5 minutes are refused, and each event is handled once.
+  - Development uses a simulated checkout (`payments_provider: "simulator"`).
+- **Revisions:** `revise 2` makes "Q-1001 rev 2" from their latest quote. Sending it withdraws earlier versions they haven't accepted, and old links point to the new one. An accepted quote stays on file as it was.
+
 ## Known gaps
 
 - **Email addresses aren't verified.** Whoever registers an address first can accept invitations sent to it. Signup still reveals that an address is taken, by failing where a new address would succeed. Both need the app to send email.
 - **Rate-limit counters live in each server process.** That's fine for one server; more than one needs a shared store such as Redis or Solid Cache.
 - **The `frontdesk_app` role can read every column of `users`, including password hashes.** It never does in practice, but a column-level grant would be stricter.
-- **No SMS, email, Meta or calendar integrations yet.** Messages are stored, not sent.
+- **WhatsApp's 24-hour rule.** Messages the business starts need Meta-approved templates, which aren't set up yet. That covers digests, reminders, alerts to staff who haven't texted in a day, and replies to customers who went quiet. The simulator doesn't enforce this; real WhatsApp will.
+- **No Google/Outlook calendar sync, SMS or email yet.**
+- **Businesses connect Stripe by hand** (an `acct_…` ID) until Stripe Connect onboarding is built. There are no refunds or partial payments through the app yet.
 - **No CORS.** Cross-origin browser requests are refused until the front end's origin is known and allowed.

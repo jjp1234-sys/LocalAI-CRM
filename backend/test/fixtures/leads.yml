@@ -12,6 +12,8 @@ michael:
   business: acme
   name: Michael Reed
   phone: "+1 305 555 0142"
+  # Rows written before phone_e164 existed got it from the backfill migration.
+  phone_e164: "+13055550142"
   need: Site estimate
   source: website
   status: new

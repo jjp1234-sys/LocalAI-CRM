@@ -2,6 +2,31 @@ Rails.application.routes.draw do
   # Load balancers and uptime monitors check this. 200 if the app booted.
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # Quote and contract pages customers open from a link.
+  get "q/:token", to: "public_documents#quote", as: :public_quote
+  post "q/:token/accept", to: "public_documents#accept_quote"
+  post "q/:token/decline", to: "public_documents#decline_quote"
+  get "c/:token", to: "public_documents#contract", as: :public_contract
+  post "c/:token/sign", to: "public_documents#sign_contract"
+  get "p/:token", to: "public_documents#payment", as: :public_payment
+  post "p/:token/pay", to: "public_documents#pay"
+
+  # Meta's WhatsApp webhook.
+  get "webhooks/whatsapp", to: "webhooks/whatsapp#verify"
+  post "webhooks/whatsapp", to: "webhooks/whatsapp#receive"
+  # Stripe's payment webhook.
+  post "webhooks/stripe", to: "webhooks/stripe#receive"
+
+  # A fake WhatsApp for trying the product locally. Development only.
+  if Rails.env.development?
+    get "dev/whatsapp", to: "dev/whatsapp_simulator#show"
+    get "dev/whatsapp/feed", to: "dev/whatsapp_simulator#feed"
+    post "dev/whatsapp/send", to: "dev/whatsapp_simulator#deliver"
+    post "dev/whatsapp/tick", to: "dev/whatsapp_simulator#tick"
+    get "dev/pay/:session_id", to: "dev/payment_simulator#show"
+    post "dev/pay/:session_id", to: "dev/payment_simulator#complete"
+  end
+
   namespace :api do
     namespace :v1 do
       post "signup", to: "registrations#create"
@@ -27,7 +52,25 @@ Rails.application.routes.draw do
               post :unarchive
             end
             resources :activities, only: :index
+            resources :notes, only: [ :index, :create ]
+            resources :job_costs, only: [ :index, :create ]
           end
+          resources :quotes, only: [ :index, :show, :create, :update ] do
+            member do
+              post :deliver
+              post :revise
+            end
+          end
+          resources :payments, only: [ :index, :show, :create ] do
+            post :cancel, on: :member
+          end
+          resources :contracts, only: [ :index, :show, :create ] do
+            member do
+              post :deliver
+              post :void
+            end
+          end
+          resources :follow_ups, only: [ :index, :show, :create, :update ]
           resources :conversations, only: [ :index, :show, :create, :update ] do
             resources :messages, only: [ :index, :create ]
           end

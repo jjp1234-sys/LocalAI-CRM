@@ -1,0 +1,26 @@
+<% content_for :title, "Payment · #{business.name}" %>
+<% error = local_assigns[:error] %>
+<div class="doc">
+  <% if payment.status_paid? %>
+    <div class="banner ok">Paid on <%= payment.paid_at.in_time_zone(business.time_zone).strftime("%B %-d, %Y") %>. Thank you!</div>
+  <% elsif payment.status_cancelled? %>
+    <div class="banner bad">This payment request was cancelled.</div>
+  <% elsif returning %>
+    <div class="banner info">Thanks! We're confirming your payment; this page will say "Paid" once it's through.</div>
+  <% end %>
+  <% if error %><div class="banner bad"><%= error %></div><% end %>
+
+  <h1><%= business.name %></h1>
+  <div class="muted">For <%= payment.lead.name %></div>
+  <table>
+    <tbody><tr><td><%= payment.description %></td><td class="n"><%= Money.format(payment.amount_cents) %></td></tr></tbody>
+    <tfoot><tr class="total"><td class="n"><%= payment.status_paid? ? "Amount paid" : "Amount due" %></td><td class="n"><%= Money.format(payment.amount_cents) %></td></tr></tfoot>
+  </table>
+
+  <% if payment.status_pending? %>
+    <form method="post" action="/p/<%= params[:token] %>/pay">
+      <button type="submit">Pay <%= Money.format(payment.amount_cents) %></button>
+    </form>
+    <p class="muted">You'll pay on a secure checkout page. Card details never pass through <%= business.name %>'s systems.</p>
+  <% end %>
+</div>

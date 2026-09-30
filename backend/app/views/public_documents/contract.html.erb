@@ -1,0 +1,39 @@
+<% content_for :title, "#{contract.label} · #{business.name}" %>
+<% error = local_assigns[:error] %>
+<div class="doc">
+  <% if contract.status_signed? %>
+    <div class="banner ok">Signed by <%= contract.signer_name %> on <%= contract.signed_at.in_time_zone(business.time_zone).strftime("%B %-d, %Y at %-l:%M%P %Z") %>.</div>
+  <% elsif contract.status_void? %>
+    <div class="banner bad">This contract has been withdrawn.</div>
+  <% elsif contract.status_draft? %>
+    <div class="banner info">Draft: not sent to the customer yet.</div>
+  <% end %>
+  <% if error %><div class="banner bad"><%= error %></div><% end %>
+
+  <h1><%= business.name %></h1>
+  <div class="muted">Contract <%= contract.label %> with <%= contract.lead.name %></div>
+  <div class="body" style="margin-top:20px"><%= contract.body %></div>
+
+  <% if contract.status_signed? %>
+    <div class="sig">
+      Signed electronically by <strong><%= contract.signer_name %></strong><br>
+      <span class="muted">Document fingerprint (SHA-256): <%= contract.signed_body_sha256 %></span>
+    </div>
+    <% if (deposit = contract.deposit_payment) %>
+      <% if deposit.status_paid? %>
+        <div class="banner ok" style="margin-top:16px">Deposit of <%= Money.format(deposit.amount_cents) %> received. Thank you!</div>
+      <% else %>
+        <form method="post" action="/p/<%= deposit.token %>/pay">
+          <button type="submit">Pay deposit (<%= Money.format(deposit.amount_cents) %>)</button>
+        </form>
+      <% end %>
+    <% end %>
+  <% elsif contract.status_sent? %>
+    <form method="post" action="/c/<%= params[:token] %>/sign">
+      <label for="name">Type your full name to sign</label>
+      <input type="text" id="name" name="name" autocomplete="name" required minlength="2" maxlength="120">
+      <label class="check"><input type="checkbox" name="consent" value="1" required> I agree to sign this contract electronically, and that my typed name is my signature.</label>
+      <button type="submit">Sign contract</button>
+    </form>
+  <% end %>
+</div>

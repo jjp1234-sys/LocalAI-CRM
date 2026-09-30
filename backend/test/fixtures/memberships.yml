@@ -1,0 +1,19 @@
+alice_acme:
+  business: acme
+  user: alice
+  role: owner
+
+carol_acme:
+  business: acme
+  user: carol
+  role: admin
+
+bob_acme:
+  business: acme
+  user: bob
+  role: agent
+
+mallory_globex:
+  business: globex
+  user: mallory
+  role: owner

@@ -1,0 +1,15 @@
+sarah_hello:
+  business: acme
+  conversation: sarah_chat
+  direction: inbound
+  sender_kind: customer
+  body: We need displays and mics for a 30 person room.
+  created_at: <%= 3.hours.ago.utc.iso8601 %>
+
+globex_secret:
+  business: globex
+  conversation: globex_chat
+  direction: inbound
+  sender_kind: customer
+  body: Globex confidential message
+  created_at: <%= 1.hour.ago.utc.iso8601 %>

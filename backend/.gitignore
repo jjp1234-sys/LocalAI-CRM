@@ -1,0 +1,18 @@
+# Gems are installed per-project (bundle config set --local path vendor/bundle), never committed
+/vendor/bundle
+/.bundle
+
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+/tmp/pids/*
+!/tmp/pids/.keep
+
+# Secrets
+/config/master.key
+/config/credentials/*.key
+.env*
+!.env.example
+
+/coverage

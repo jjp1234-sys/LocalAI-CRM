@@ -1,0 +1,15 @@
+sarah_consult:
+  business: acme
+  lead: sarah
+  kind: consultation
+  status: confirmed
+  starts_at: <%= 2.days.from_now.utc.iso8601 %>
+  ends_at: <%= (2.days.from_now + 1.hour).utc.iso8601 %>
+
+globex_visit:
+  business: globex
+  lead: globex_lead
+  kind: site_visit
+  status: tentative
+  starts_at: <%= 3.days.from_now.utc.iso8601 %>
+  ends_at: <%= (3.days.from_now + 1.hour).utc.iso8601 %>

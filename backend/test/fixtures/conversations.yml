@@ -1,0 +1,12 @@
+sarah_chat:
+  business: acme
+  lead: sarah
+  channel: facebook
+  status: open
+  last_message_at: <%= 2.hours.ago.utc.iso8601 %>
+
+globex_chat:
+  business: globex
+  lead: globex_lead
+  channel: web_chat
+  status: open

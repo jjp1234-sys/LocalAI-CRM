@@ -1,0 +1,20 @@
+const leads=[
+{name:"Sarah Johnson",need:"Commercial AV Install",source:"Facebook",score:86,status:"Qualified"},
+{name:"Michael Reed",need:"Site estimate",source:"Website",score:74,status:"New"},
+{name:"Ana Torres",need:"Service upgrade",source:"Facebook",score:91,status:"Appointment"},
+{name:"David Chen",need:"Consultation",source:"Referral",score:67,status:"Contacted"}
+];
+const stages=["New","Contacted","Qualified","Appointment","Won"];
+const subtitles={dashboard:"Your lead-to-appointment command center.",leads:"Capture, qualify and prioritize every opportunity.",pipeline:"Move opportunities from inquiry to customer.",conversations:"AI handles the first response; humans stay in control.",appointments:"Turn qualified demand into scheduled conversations.",automations:"Follow up consistently without repetitive manual work.",knowledge:"Control exactly what your AI front office knows.",settings:"Connect the channels that power your customer journey."};
+function pill(status){return `<span class="pill ${status==="Qualified"?"qualified":status==="Appointment"?"appointment-pill":""}">${status}</span>`}
+function row(l){return `<tr><td><span class="avatar">${l.name.split(" ").map(x=>x[0]).join("")}</span><b>${l.name}</b></td><td>${l.need}</td><td>${l.source}</td><td class="score">${l.score}</td><td>${pill(l.status)}</td></tr>`}
+function renderLeads(list=leads){document.querySelector("#leadRows").innerHTML=leads.slice(0,4).map(row).join("");document.querySelector("#allLeadRows").innerHTML=list.map(row).join("")}
+function renderPipeline(){document.querySelector("#miniPipeline").innerHTML=stages.map(s=>`<div class="mini-stage"><span>${s}</span><b>${leads.filter(l=>l.status===s).length+(s==="Won"?3:0)}</b></div>`).join("");document.querySelector("#kanban").innerHTML=stages.map(s=>`<section class="column"><h3>${s} · ${leads.filter(l=>l.status===s).length+(s==="Won"?3:0)}</h3>${leads.filter(l=>l.status===s).map(l=>`<div class="leadcard"><b>${l.name}</b><span>${l.need}</span><span>${l.source} • Score ${l.score}</span></div>`).join("")}${s==="Won"?`<div class="leadcard"><b>Bright Dental</b><span>Waiting room displays</span><span>Referral • Closed</span></div>`:""}</section>`).join("")}
+function go(page){document.querySelectorAll(".page").forEach(x=>x.classList.remove("active"));document.querySelectorAll("#nav button").forEach(x=>x.classList.remove("active"));document.querySelector("#"+page).classList.add("active");document.querySelector(`#nav button[data-page="${page}"]`)?.classList.add("active");document.querySelector("#title").textContent=page==="conversations"?"AI Conversations":page.charAt(0).toUpperCase()+page.slice(1);document.querySelector("#subtitle").textContent=subtitles[page];window.scrollTo(0,0)}
+document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>go(b.dataset.page));
+document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>go(b.dataset.go));
+document.querySelector("#search").oninput=e=>renderLeads(leads.filter(l=>(l.name+" "+l.need+" "+l.source+" "+l.status).toLowerCase().includes(e.target.value.toLowerCase())));
+const dialog=document.querySelector("#leadDialog");document.querySelector("#newLead").onclick=()=>dialog.showModal();
+document.querySelector("#saveLead").onclick=e=>{const name=document.querySelector("#leadName").value.trim(),need=document.querySelector("#leadNeed").value.trim();if(!name||!need){e.preventDefault();return}leads.unshift({name,need,source:document.querySelector("#leadSource").value,score:50,status:"New"});renderLeads();renderPipeline()};
+document.querySelector("#takeover").onclick=e=>{e.target.textContent=e.target.textContent==="Take over"?"Return to AI":"Take over";e.target.closest(".chathead").querySelector("p").textContent=e.target.textContent==="Return to AI"?"Human agent active":"Facebook Lead • Score 86 • Qualified"};
+renderLeads();renderPipeline();

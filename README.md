@@ -1,10 +1,8 @@
-# LocalAI Assistant V2
-Conversational AI is now the primary product; the CRM operates underneath it.
+# LocalAI CRM
 
-## Main areas
-- Assistant: talk to your business
-- Inbox: customer conversations + human takeover
-- Business: pipeline, metrics, knowledge, automations, integrations
-- Settings: AI autonomy and guardrails
+AI-powered lead qualification and appointment CRM for local businesses.
 
-This is a clickable front-end prototype using demo data. Production AI, database, authentication and external integrations come next.
+## V1 prototype
+Open `index.html` in a browser. The prototype includes Dashboard, Leads, Pipeline, AI Conversations, Appointments, Automations, Knowledge Base, Settings, responsive navigation, demo qualification data, lead search, human takeover, and a basic Add Lead flow.
+
+See `docs/V1-SCOPE.md` for product scope and guardrails.

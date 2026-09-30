@@ -1,9 +1,71 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LocalAI Assistant</title><link rel="stylesheet" href="styles.css"></head><body>
-<div class="app"><aside><div class="logo">L</div><button class="active" data-v="assistant">✦<small>Assistant</small></button><button data-v="inbox">◉<small>Inbox</small></button><button data-v="business">▦<small>Business</small></button><button data-v="settings">⚙<small>Settings</small></button></aside>
-<section class="shell"><header><div><span>LOCALAI</span><h1 id="title">AI Business Assistant</h1></div><b>● AI online</b></header>
-<main id="assistant" class="view active"><div class="chat"><p class="day">Today</p><div class="row ai"><i>✦</i><div class="bubble"><strong>Good evening.</strong><p>You received <b>8 new leads</b> today. I qualified 5, booked 2 appointments, and 1 customer needs your attention.</p><div class="stats"><em><b>8</b>New</em><em><b>5</b>Qualified</em><em><b>2</b>Booked</em></div></div></div><div class="row me"><div class="bubble">Who are my hottest leads?</div></div><div class="row ai"><i>✦</i><div class="bubble"><p>These have the strongest buying signals:</p><article><b>Ana Torres <mark>91</mark></b><small>Service upgrade • Facebook</small><p>Appointment scheduled • Ready for site walkthrough</p><button>Open customer</button> <button>Message</button></article><article><b>Sarah Johnson <mark>86</mark></b><small>Commercial AV Install • Facebook</small><p>$15k–$25k budget • 45-day timeline • Qualified</p><button>Follow up</button> <button>Open customer</button></article></div></div><div id="dynamic"></div></div>
-<div class="quick"><button data-q="What needs my attention?">What needs my attention?</button><button data-q="Show today's appointments">Today's appointments</button><button data-q="Follow up with quiet leads">Follow up with quiet leads</button></div><form id="form"><input id="prompt" placeholder="Ask LocalAI about your business…"><button>➤</button></form></main>
-<main id="inbox" class="view"><section class="list"><h2>Inbox</h2><div class="contact active"><b>Sarah Johnson</b><small>Thanks — that works for us.</small></div><div class="contact"><b>Ana Torres</b><small>Is 2 PM still available?</small></div><div class="contact"><b>Michael Reed</b><small>We are hoping for next month.</small></div></section><section class="conversation"><div class="person"><div><b>Sarah Johnson</b><small>Facebook • Qualified • Score 86</small></div><button id="takeover">Take over</button></div><div class="messages"><p class="in">We need to update our conference room for about 30 people.</p><p class="out">Absolutely. Do you have a target timeline and approximate budget range?</p><p class="in">Within 45 days. Around $15k–$25k.</p><p class="out">Great — I can help schedule a consultation/site walkthrough next.</p></div></section></main>
-<main id="business" class="view"><div class="cards"><div><small>Pipeline value</small><b>$84,500</b><span>12 open opportunities</span></div><div><small>Appointments</small><b>4</b><span>Next 7 days</span></div><div><small>AI handled</small><b>87%</b><span>Without human takeover</span></div></div><section class="panel"><h2>Sales pipeline</h2><div class="pipeline"><span>New <b>4</b></span><span>Contacted <b>3</b></span><span>Qualified <b>5</b></span><span>Appointment <b>2</b></span><span>Won <b>3</b></span></div></section><section class="panel"><h2>Business controls</h2><p><b>Knowledge Base</b> — Services, FAQs, policies and approved answers</p><p><b>Automations</b> — Lead response, follow-up and reminders</p><p><b>Integrations</b> — Meta, website, SMS, calendar and email</p></section></main>
-<main id="settings" class="view"><section class="panel"><h2>AI autonomy</h2><p>✓ Answer approved FAQs</p><p>✓ Qualify leads</p><p>✓ Schedule appointments</p><p>○ Custom pricing & discounts — require approval</p><p>○ Complaints, refunds, legal issues — human required</p></section></main>
-</section></div><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LocalAI CRM</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">L</span><div><strong>LocalAI</strong><small>CRM</small></div></div>
+    <nav id="nav">
+      <button class="active" data-page="dashboard">▦ Dashboard</button>
+      <button data-page="leads">◉ Leads</button>
+      <button data-page="pipeline">⌁ Pipeline</button>
+      <button data-page="conversations">✦ AI Conversations</button>
+      <button data-page="appointments">◷ Appointments</button>
+      <button data-page="automations">↻ Automations</button>
+      <button data-page="knowledge">▤ Knowledge Base</button>
+      <button data-page="settings">⚙ Settings</button>
+    </nav>
+    <div class="business"><span>Demo workspace</span><strong>South Florida AV</strong></div>
+  </aside>
+
+  <main>
+    <header>
+      <div><p class="eyebrow">AI FRONT OFFICE</p><h1 id="title">Dashboard</h1><p id="subtitle">Your lead-to-appointment command center.</p></div>
+      <button class="primary" id="newLead">+ New lead</button>
+    </header>
+
+    <section id="dashboard" class="page active">
+      <div class="metrics">
+        <article><span>New leads</span><strong>12</strong><small>↑ 20% this week</small></article>
+        <article><span>Qualified</span><strong>6</strong><small>50% qualification rate</small></article>
+        <article><span>Appointments</span><strong>4</strong><small>2 upcoming today</small></article>
+        <article><span>AI response rate</span><strong>98%</strong><small>Median reply: 12 sec</small></article>
+      </div>
+      <div class="grid">
+        <article class="panel wide"><div class="panelhead"><div><h2>Pipeline</h2><p>Live opportunity snapshot</p></div><button class="link" data-go="pipeline">View pipeline →</button></div><div id="miniPipeline" class="mini-pipeline"></div></article>
+        <article class="panel"><div class="panelhead"><div><h2>AI activity</h2><p>Recent qualification work</p></div></div>
+          <div class="activity"><b>Sarah Johnson</b><span>Qualified • Commercial AV Install</span><small>2 min ago</small></div>
+          <div class="activity"><b>Ana Torres</b><span>Appointment scheduled</span><small>18 min ago</small></div>
+          <div class="activity"><b>Michael Reed</b><span>AI requested project timeline</span><small>32 min ago</small></div>
+        </article>
+      </div>
+      <article class="panel"><div class="panelhead"><div><h2>Recent leads</h2><p>AI-ranked by buying intent</p></div><button class="link" data-go="leads">See all →</button></div><div class="tablewrap"><table><thead><tr><th>Lead</th><th>Need</th><th>Source</th><th>Score</th><th>Status</th></tr></thead><tbody id="leadRows"></tbody></table></div></article>
+    </section>
+
+    <section id="leads" class="page"><article class="panel"><div class="panelhead"><div><h2>Lead inbox</h2><p>Every inbound lead in one place.</p></div><input id="search" placeholder="Search leads…"></div><div class="tablewrap"><table><thead><tr><th>Lead</th><th>Need</th><th>Source</th><th>Score</th><th>Status</th></tr></thead><tbody id="allLeadRows"></tbody></table></div></article></section>
+
+    <section id="pipeline" class="page"><div id="kanban" class="kanban"></div></section>
+
+    <section id="conversations" class="page">
+      <div class="chat-layout"><article class="panel conversation-list"><h2>Conversations</h2><button class="thread active"><b>Sarah Johnson</b><span>Commercial AV Install</span></button><button class="thread"><b>Michael Reed</b><span>Site estimate</span></button><button class="thread"><b>Ana Torres</b><span>Service upgrade</span></button></article>
+      <article class="panel chat"><div class="chathead"><div><h2>Sarah Johnson</h2><p>Facebook Lead • Score 86 • Qualified</p></div><button id="takeover">Take over</button></div><div class="messages"><div class="bubble ai">Hi Sarah! I can help with your AV project. What type of space are you looking to equip?</div><div class="bubble customer">A conference room for about 30 people. We need displays, microphones and video calls.</div><div class="bubble ai">Great. Do you already have a target timeline and approximate budget range?</div><div class="bubble customer">We want it done within 45 days. Around $15k–$25k.</div><div class="bubble ai">Thanks — that gives our team what they need. I can help schedule a consultation/site walkthrough next.</div></div><div class="composer"><input placeholder="Human reply…"><button class="primary">Send</button></div></article></div>
+    </section>
+
+    <section id="appointments" class="page"><article class="panel"><h2>Appointments</h2><p class="muted">Qualified leads converted into calls and site visits.</p><div class="appointment"><div class="date"><b>30</b><span>SEP</span></div><div><b>Ana Torres — Site walkthrough</b><span>2:00 PM • Service upgrade</span></div><span class="pill appointment-pill">Confirmed</span></div><div class="appointment"><div class="date"><b>01</b><span>OCT</span></div><div><b>Sarah Johnson — Consultation</b><span>10:30 AM • Commercial AV Install</span></div><span class="pill qualified">Tentative</span></div></article></section>
+
+    <section id="automations" class="page"><div class="cards"><article class="panel"><h2>Instant lead response</h2><p>AI responds, identifies the need and begins qualification.</p><span class="toggle on">ON</span></article><article class="panel"><h2>No-response follow-up</h2><p>Follow up after 24 hours when a qualified lead goes quiet.</p><span class="toggle on">ON</span></article><article class="panel"><h2>Appointment reminder</h2><p>Send reminders before scheduled consultations.</p><span class="toggle on">ON</span></article></div></section>
+
+    <section id="knowledge" class="page"><article class="panel"><h2>Business Knowledge Base</h2><p class="muted">Approved information the AI can use when speaking with customers.</p><div class="knowledge"><b>Services</b><span>AV installation, livestream systems, conference rooms, displays, projectors, speakers and microphones.</span></div><div class="knowledge"><b>AI guardrail</b><span>Exact pricing, custom discounts, contracts, refunds, legal issues and complaints require human approval.</span></div><button class="primary">+ Add knowledge</button></article></section>
+
+    <section id="settings" class="page"><article class="panel"><h2>Integrations</h2><p class="muted">V1 integration architecture. Live credentials will be connected later.</p><div class="integration"><b>Meta Lead Ads</b><span>Facebook + Instagram leads</span><em>Planned</em></div><div class="integration"><b>Website Forms</b><span>Inbound web leads</span><em>Planned</em></div><div class="integration"><b>SMS</b><span>AI + human texting</span><em>Planned</em></div><div class="integration"><b>Calendar</b><span>Appointment availability</span><em>Planned</em></div></article></section>
+  </main>
+
+  <dialog id="leadDialog"><form method="dialog"><div class="panelhead"><h2>Add lead</h2><button value="cancel" class="close">×</button></div><label>Name<input id="leadName" required placeholder="Customer name"></label><label>Need<input id="leadNeed" required placeholder="What do they need?"></label><label>Source<select id="leadSource"><option>Website</option><option>Facebook</option><option>Instagram</option><option>Referral</option></select></label><button id="saveLead" value="default" class="primary full">Save lead</button></form></dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

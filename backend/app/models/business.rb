@@ -34,6 +34,8 @@ class Business < ApplicationRecord
   validates :default_tax_rate_bps, numericality: { only_integer: true, in: 0..3000 }
   validates :quote_valid_days, numericality: { only_integer: true, in: 1..365 }
   validates :contract_terms, length: { maximum: 50_000 }
+  validates :payments_provider, inclusion: { in: %w[none simulator stripe] }
+  validates :stripe_account_id, format: { with: /\Aacct_[A-Za-z0-9]+\z/ }, allow_nil: true
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map { |z| z.tzinfo.name }.uniq }
 
   # Turns a business name into a unique URL-safe slug: "Bob's AV" -> "bob-s-av".

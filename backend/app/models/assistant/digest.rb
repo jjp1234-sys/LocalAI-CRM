@@ -75,7 +75,9 @@ module Assistant
       return nil if won.zero? && pipeline.zero?
 
       profit = costs.positive? ? " (profit #{Money.format(won - costs)})" : ""
-      "💰 Won this month: *#{Money.format(won)}*#{profit} · In play: #{Money.format(pipeline)}"
+      collected = Payment.status_paid.where(paid_at: @now.beginning_of_month..).sum(:amount_cents)
+      cash = collected.positive? ? "\n💵 Collected this month: #{Money.format(collected)}" : ""
+      "💰 Won this month: *#{Money.format(won)}*#{profit} · In play: #{Money.format(pipeline)}#{cash}"
     end
   end
 end

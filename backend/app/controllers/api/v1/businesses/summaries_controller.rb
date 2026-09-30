@@ -16,6 +16,8 @@ module Api
             # Money, in cents.
             pipeline_value_cents: leads.where(status: %w[new contacted qualified appointment]).sum(:value_cents),
             won_this_month_cents: Lead.where(won_at: month_start..).sum(:value_cents),
+            collected_this_month_cents: Payment.status_paid.where(paid_at: month_start..).sum(:amount_cents),
+            outstanding_payments_cents: Payment.status_pending.sum(:amount_cents),
             won_this_month_costs_cents: JobCost.where(lead_id: Lead.where(won_at: month_start..).select(:id)).sum(:amount_cents),
             by_source: by_source
           })

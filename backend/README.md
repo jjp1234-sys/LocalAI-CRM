@@ -106,6 +106,22 @@ The product runs over WhatsApp: customers message a business's number and become
 - **Contract terms:** each business sets its own (`contract_terms`). The built-in default is a short generic template, flagged in the text as needing a lawyer's review.
 - **Production needs `APP_PUBLIC_URL`,** the base URL for customer links.
 
+## Deposits, payments and revisions
+
+- **Deposits:** `deposit 50%` or `deposit 500` on a quote. The deposit shows on the quote and contract. Signing the contract creates the deposit request, and the signed page shows "Pay deposit".
+- **Payment links:**
+  - `request 2 balance`, `request 2 deposit` or `request 2 500 materials` sends a private link (`/p/…`).
+  - The customer pays on the provider's hosted checkout, so card details never touch this app.
+  - When the payment lands, the team is told (with the balance left) and the customer is thanked.
+  - Paid payments are frozen by a database trigger.
+- **Stripe:**
+  - Charges go directly to each business's own connected account (Stripe Connect), so the money is theirs.
+  - Needs `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, plus `payments_provider: "stripe"` and the business's `stripe_account_id`.
+  - Point a Connect webhook at `/webhooks/stripe` for `checkout.session.completed`, `checkout.session.async_payment_succeeded` and `checkout.session.expired`.
+  - Webhook signatures are checked, events older than 5 minutes are refused, and each event is handled once.
+  - Development uses a simulated checkout (`payments_provider: "simulator"`).
+- **Revisions:** `revise 2` makes "Q-1001 rev 2" from their latest quote. Sending it withdraws earlier versions they haven't accepted, and old links point to the new one. An accepted quote stays on file as it was.
+
 ## Known gaps
 
 - **Email addresses aren't verified.** Whoever registers an address first can accept invitations sent to it. Signup still reveals that an address is taken, by failing where a new address would succeed. Both need the app to send email.
@@ -113,5 +129,5 @@ The product runs over WhatsApp: customers message a business's number and become
 - **The `frontdesk_app` role can read every column of `users`, including password hashes.** It never does in practice, but a column-level grant would be stricter.
 - **WhatsApp's 24-hour rule.** Messages the business starts need Meta-approved templates, which aren't set up yet. That covers digests, reminders, alerts to staff who haven't texted in a day, and replies to customers who went quiet. The simulator doesn't enforce this; real WhatsApp will.
 - **No Google/Outlook calendar sync, SMS or email yet.**
-- **Quotes don't have deposits, payment links or version history yet.** An accepted quote is final; changes need a new quote.
+- **Businesses connect Stripe by hand** (an `acct_…` ID) until Stripe Connect onboarding is built. There are no refunds or partial payments through the app yet.
 - **No CORS.** Cross-origin browser requests are refused until the front end's origin is known and allowed.

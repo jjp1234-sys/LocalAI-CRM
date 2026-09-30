@@ -18,6 +18,9 @@ class Quote < ApplicationRecord
 
   validates :tax_rate_bps, numericality: { only_integer: true, in: 0..3000 }
   validates :notes, length: { maximum: 5000 }
+  validates :deposit_bps, numericality: { only_integer: true, in: 1..10_000 }, allow_nil: true
+  validates :deposit_cents, numericality: { only_integer: true, in: 1..10_000_000_000 }, allow_nil: true
+  validate { errors.add(:base, "Set a deposit as a percentage or an amount, not both") if deposit_bps && deposit_cents }
   validate { errors.add(:lead, "must belong to the same business") if lead && lead.business_id != business_id }
 
   before_validation(on: :create) do
@@ -26,7 +29,34 @@ class Quote < ApplicationRecord
     self.valid_until ||= Time.current.in_time_zone(business.time_zone).to_date + business.quote_valid_days if business
   end
 
-  def label = "Q-#{number}"
+  def label = revision > 1 ? "Q-#{number} rev #{revision}" : "Q-#{number}"
+
+  # A newer revision of this quote, if one has been made.
+  def superseded_by
+    Quote.where(number: number).where("revision > ?", revision).where.not(status: %w[draft void]).order(:revision).last
+  end
+
+  # Deposit: a percentage of the total (deposit_bps) or a fixed amount.
+  def deposit_amount_cents
+    return deposit_cents if deposit_cents
+    return nil unless deposit_bps
+
+    (total_cents * deposit_bps / 10_000.0).round
+  end
+
+  # A new draft copying this quote (items, tax, deposit, notes), with the same
+  # number and the next revision. The original stays as it was: an accepted
+  # quote is a record of what was agreed. An unaccepted one is withdrawn when
+  # the revision is sent (see #send!).
+  def revise!(by:)
+    next_revision = Quote.where(number: number).maximum(:revision) + 1
+    copy = Quote.create!(
+      lead: lead, created_by: by, number: number, revision: next_revision,
+      tax_rate_bps: tax_rate_bps, deposit_bps: deposit_bps, deposit_cents: deposit_cents, notes: notes
+    )
+    items.each { |i| copy.add_item!(description: i.description, quantity: i.quantity, unit_price_cents: i.unit_price_cents) }
+    copy
+  end
 
   # Drafts and sent quotes can still be changed; the customer always sees the
   # current version until they accept it.
@@ -52,7 +82,11 @@ class Quote < ApplicationRecord
       raise ActiveRecord::RecordInvalid, self
     end
 
-    update!(status: "sent", sent_at: sent_at || Time.current)
+    transaction do
+      update!(status: "sent", sent_at: sent_at || Time.current)
+      # Sending a revision withdraws earlier versions the customer hasn't accepted.
+      Quote.where(number: number).where("revision < ?", revision).where(status: %w[draft sent]).find_each { |q| q.update!(status: "void") }
+    end
   end
 
   # Called from the customer's page. Returns false if it can't be accepted.

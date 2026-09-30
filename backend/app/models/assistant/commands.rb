@@ -33,7 +33,10 @@ module Assistant
       *cost 2 1800 speakers*: record a job cost (shows profit)
       *quote 2*, then *add 4 speakers 350*, *send quote*: build and send a quote
       *contract 2*: send the contract for their accepted quote
-      *docs 2*: a lead's quotes and contracts, with links
+      *deposit 50%* or *deposit 500*: add a deposit to the quote
+      *revise 2*: a new version of their latest quote
+      *request 2 balance* or *request 2 500 materials*: send a payment link
+      *docs 2*: a lead's quotes, contracts and payments, with links
     TEXT
 
     def initialize(account:, user:, event:)
@@ -82,6 +85,9 @@ module Assistant
       when /\Aremove\s+(\d{1,2})\z/ then remove_quote_item(Regexp.last_match(1).to_i)
       when /\Atax\s+(\d{1,2}(?:\.\d{1,2})?)%?\z/ then set_quote_tax(Regexp.last_match(1))
       when /\Acontract\s+(.+)\z/ then send_contract(text.split(/\s+/, 2).last)
+      when /\Adeposit\s+(.+)\z/ then set_quote_deposit(Regexp.last_match(1))
+      when /\Arevise(?:\s+quote)?\s+(.+)\z/ then revise_quote(Regexp.last_match(1))
+      when /\A(?:request|invoice|charge)\s+(.+)\z/ then request_payment(text.split(/\s+/, 2).last)
       when /\Adocs?\s+(.+)\z/ then list_docs(text.split(/\s+/, 2).last)
       when /\A(?:lead|show|l)\s+(.+)\z/ then show_lead(text.split(/\s+/, 2).last)
       when /\A(?:reply|r)\s+(.+)\z/m then reply_command(text.split(/\s+/, 2).last)
@@ -113,6 +119,8 @@ module Assistant
       lines << "Worth: #{Money.format(lead.value_cents)}" if lead.value_cents
       costs = lead.job_costs_cents
       lines << "Costs: #{Money.format(costs)} · Profit: #{lead.profit_cents ? Money.format(lead.profit_cents) : "set a value to see it"}" if costs.positive?
+      paid = lead.paid_cents
+      lines << "Paid: #{Money.format(paid)}#{lead.balance_cents ? " · Balance: #{Money.format(lead.balance_cents)}" : ""}" if paid.positive?
       lead.notes.last(2).each { |n| lines << "📝 #{n.body.truncate(120)}" }
       lead.follow_ups.open.order(:due_at).limit(2).each { |f| lines << "⏰ #{f.body} · #{when_text(f.due_at)}" }
       if (appointment = lead.appointments.upcoming.order(:starts_at).first)
@@ -250,9 +258,10 @@ module Assistant
       end
       lines << "Tax #{quote.tax_rate_bps / 100.0}%: #{Money.format(quote.tax_cents)}" if quote.tax_rate_bps.positive?
       lines << "*Total: #{Money.format(quote.total_cents)}*"
+      lines << "Deposit on signing: #{Money.format(quote.deposit_amount_cents)}" if quote.deposit_amount_cents
       lines << ""
       lines << "Preview: #{quote.public_url}"
-      lines << "*send quote* when it's ready · *remove 2* to drop a line · *tax 7* to set tax"
+      lines << "*send quote* when it's ready · *remove 2* to drop a line · *tax 7* to set tax · *deposit 50%*"
       lines.join("\n")
     end
 
@@ -287,16 +296,87 @@ module Assistant
       "📨 #{contract.label} for *#{lead.name}* is ready to sign. #{delivery}\n#{contract.public_url}"
     end
 
+    # "deposit 50%", "deposit 500", "deposit none"
+    def set_quote_deposit(value)
+      quote = current_quote
+      return "Start a quote first: *quote 2*." unless quote
+
+      value = value.strip.downcase
+      if %w[none 0 0%].include?(value)
+        quote.update!(deposit_bps: nil, deposit_cents: nil)
+      elsif (m = value.match(/\A(\d{1,3}(?:\.\d{1,2})?)\s*%\z/))
+        bps = (BigDecimal(m[1]) * 100).round
+        return "A deposit percentage must be between 1% and 100%." unless bps.between?(1, 10_000)
+
+        quote.update!(deposit_bps: bps, deposit_cents: nil)
+      elsif (cents = Money.parse(value))
+        quote.update!(deposit_cents: cents, deposit_bps: nil)
+      else
+        return "Try *deposit 50%* or *deposit 500*."
+      end
+      quote_summary(quote)
+    end
+
+    def revise_quote(ref)
+      lead, problem = resolve(ref, verb: "revise")
+      return problem unless lead
+
+      latest = lead.quotes.where.not(status: "void").order(:number, :revision).last
+      return "*#{lead.name}* has no quote to revise. Start one with *quote #{ref}*." unless latest
+      return start_quote(ref) if latest.status_draft?
+
+      copy = latest.revise!(by: @user)
+      @session.update!(state: @session.state.merge("quote_id" => copy.id))
+      note = latest.status_accepted? ? "They accepted #{latest.label}; that stays on file." : "#{latest.label} is withdrawn once you send this."
+      "#{quote_summary(copy)}\n\n#{note}"
+    end
+
+    # "request 2 balance", "request 2 deposit", "request 2 500 materials"
+    def request_payment(rest)
+      tokens = rest.split
+      at = tokens.index { |t| %w[balance deposit].include?(t.downcase) || Money.parse(t) }
+      return "Try *request 2 balance* or *request 2 500 materials*." unless at&.positive?
+
+      lead, problem = resolve(tokens[0...at].join(" "), verb: "request")
+      return problem unless lead
+      return "Payments aren't set up for #{@business.name} yet." if @business.payments_provider == "none"
+
+      word = tokens[at].downcase
+      quote = lead.quotes.status_accepted.order(:accepted_at).last
+      kind, amount, description =
+        case word
+        when "balance"
+          [ "balance", lead.balance_cents, "Balance#{quote ? " for #{quote.label}" : ""}" ]
+        when "deposit"
+          [ "deposit", quote&.deposit_amount_cents, "Deposit#{quote ? " for #{quote.label}" : ""}" ]
+        else
+          [ "other", Money.parse(word), tokens[(at + 1)..].join(" ").presence || "Payment" ]
+        end
+      return "*#{lead.name}* has nothing left to pay." if kind == "balance" && lead.balance_cents&.zero?
+      return "I don't know how much to ask for. Set a *value* or send an amount, like *request 2 500 materials*." unless amount
+      return "The smallest amount I can request is #{Money.format(Payment::MIN_CENTS)}." if amount < Payment::MIN_CENTS
+
+      payment = Payment.create!(lead: lead, quote: quote, kind: kind, description: description, amount_cents: amount, created_by: @user)
+      told = tell_customer(lead, "#{@business.name}: #{payment.description}, #{Money.format(amount)}. Pay securely here:\n#{payment.public_url}")
+      delivery = told ? "I've sent them the link." : "Forward this link to them (they haven't messaged in the last 24 hours, so I can't):"
+      "💳 Payment request for *#{lead.name}*: #{Money.format(amount)} (#{description}). #{delivery}\n#{payment.public_url}"
+    end
+
     def list_docs(ref)
       lead, problem = resolve(ref, verb: "docs")
       return problem unless lead
 
-      docs = (lead.quotes.to_a + lead.contracts.to_a).sort_by(&:created_at)
+      docs = (lead.quotes.to_a + lead.contracts.to_a + lead.payments.to_a).sort_by(&:created_at)
       return "No quotes or contracts for *#{lead.name}* yet. Start one with *quote #{ref}*." if docs.empty?
 
       lines = docs.map do |doc|
-        amount = doc.is_a?(Quote) ? " · #{Money.format(doc.total_cents)}" : ""
-        "#{doc.label} · #{doc.status}#{amount}\n#{doc.public_url}"
+        label, amount =
+          case doc
+          when Quote then [ doc.label, " · #{Money.format(doc.total_cents)}" ]
+          when Payment then [ "💳 #{doc.description}", " · #{Money.format(doc.amount_cents)}" ]
+          else [ doc.label, "" ]
+          end
+        "#{label} · #{doc.status}#{amount}\n#{doc.public_url}"
       end
       "📂 *#{lead.name}*\n#{lines.join("\n\n")}"
     end
@@ -423,18 +503,13 @@ module Assistant
     # which isn't set up yet, so say so rather than fail silently.
     def send_to_customer(lead, text)
       return "Nothing to send." if text.blank?
-
-      conversation = lead.conversations.status_open.find_by(channel: "whatsapp")
-      last_heard = conversation&.messages&.where(direction: "inbound")&.maximum(:created_at)
-      if conversation.nil? || lead.phone_e164.blank?
+      unless Whatsapp::CustomerMessenger.conversation(lead) && lead.phone_e164.present?
         return "*#{lead.name}* hasn't messaged us on WhatsApp, so I can't start a chat with them yet."
       end
-      if last_heard.nil? || last_heard < CUSTOMER_WINDOW.ago
-        return "*#{lead.name}* last wrote #{ago(last_heard)}. WhatsApp only allows replies within 24 hours of their last message; after that it needs an approved template, which isn't set up yet."
+      unless Whatsapp::CustomerMessenger.tell(lead, text, sender_user: @user)
+        return "*#{lead.name}* last wrote #{ago(Whatsapp::CustomerMessenger.last_heard_at(lead))}. WhatsApp only allows replies within 24 hours of their last message; after that it needs an approved template, which isn't set up yet."
       end
 
-      message = conversation.messages.create!(body: text, direction: "outbound", sender_kind: "staff", sender_user: @user)
-      OutboundMessage.queue!(account: @account, to: lead.phone_e164, body: text, lead: lead, message: message)
       "✓ Sent to *#{lead.name}*."
     end
 
@@ -508,16 +583,10 @@ module Assistant
       "✅ Booked *#{lead.name}* #{when_text(starts_at)}. #{note}"
     end
 
-    # An automatic message to the customer, recorded in their conversation.
-    # Only possible inside WhatsApp's 24-hour window; returns whether it was sent.
+    # An automatic message to the customer; false if WhatsApp's 24-hour
+    # window has closed (see Whatsapp::CustomerMessenger).
     def tell_customer(lead, text)
-      conversation = lead.conversations.status_open.find_by(channel: "whatsapp")
-      last_heard = conversation&.messages&.where(direction: "inbound")&.maximum(:created_at)
-      return false unless conversation && lead.phone_e164 && last_heard && last_heard >= CUSTOMER_WINDOW.ago
-
-      message = conversation.messages.create!(body: text, direction: "outbound", sender_kind: "system")
-      OutboundMessage.queue!(account: @account, to: lead.phone_e164, body: text, lead: lead, message: message)
-      true
+      Whatsapp::CustomerMessenger.tell(lead, text)
     end
 
     # Answers to "👋 <name> is back: reopen, new lead, or leave it?"

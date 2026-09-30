@@ -1,6 +1,7 @@
 # The pages customers open from a quote or contract link:
 #   GET  /q/:token  view a quote       POST /q/:token/accept, /q/:token/decline
 #   GET  /c/:token  view a contract    POST /c/:token/sign
+#   GET  /p/:token  view a payment     POST /p/:token/pay (off to the provider's checkout)
 #
 # The token in the link is the only credential, so:
 # - it's looked up by digest, and a wrong token is a plain 404
@@ -63,6 +64,27 @@ class PublicDocumentsController < ActionController::Base
     end
   end
 
+  def payment
+    with_document(Payment) do |payment|
+      render :payment, locals: { payment: payment, business: payment.business, returning: params[:done].present? }
+    end
+  end
+
+  # Sends the customer to the provider's hosted checkout. Card details never
+  # touch this app.
+  def pay
+    with_document(Payment) do |payment|
+      next render(:payment, locals: { payment: payment, business: payment.business, returning: false }) unless payment.status_pending?
+
+      url = payment.checkout_url!(return_url: payment.public_url)
+      redirect_to url, allow_other_host: true, status: :see_other
+    rescue Payments::Provider::Error => e
+      Rails.logger.error("Checkout for payment #{payment.id} failed: #{e.message}")
+      render :payment, locals: { payment: payment, business: payment.business, returning: false,
+        error: "We couldn't start the payment just now. Please try again in a minute." }
+    end
+  end
+
   private
 
   def with_document(model)
@@ -76,6 +98,6 @@ class PublicDocumentsController < ActionController::Base
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Cache-Control"] = "private, no-store"
-    response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://checkout.stripe.com; base-uri 'none'; frame-ancestors 'none'"
   end
 end

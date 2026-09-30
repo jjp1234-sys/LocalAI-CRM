@@ -19,6 +19,15 @@
       Signed electronically by <strong><%= contract.signer_name %></strong><br>
       <span class="muted">Document fingerprint (SHA-256): <%= contract.signed_body_sha256 %></span>
     </div>
+    <% if (deposit = contract.deposit_payment) %>
+      <% if deposit.status_paid? %>
+        <div class="banner ok" style="margin-top:16px">Deposit of <%= Money.format(deposit.amount_cents) %> received. Thank you!</div>
+      <% else %>
+        <form method="post" action="/p/<%= deposit.token %>/pay">
+          <button type="submit">Pay deposit (<%= Money.format(deposit.amount_cents) %>)</button>
+        </form>
+      <% end %>
+    <% end %>
   <% elsif contract.status_sent? %>
     <form method="post" action="/c/<%= params[:token] %>/sign">
       <label for="name">Type your full name to sign</label>

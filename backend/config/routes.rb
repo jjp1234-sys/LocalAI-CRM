@@ -8,10 +8,14 @@ Rails.application.routes.draw do
   post "q/:token/decline", to: "public_documents#decline_quote"
   get "c/:token", to: "public_documents#contract", as: :public_contract
   post "c/:token/sign", to: "public_documents#sign_contract"
+  get "p/:token", to: "public_documents#payment", as: :public_payment
+  post "p/:token/pay", to: "public_documents#pay"
 
   # Meta's WhatsApp webhook.
   get "webhooks/whatsapp", to: "webhooks/whatsapp#verify"
   post "webhooks/whatsapp", to: "webhooks/whatsapp#receive"
+  # Stripe's payment webhook.
+  post "webhooks/stripe", to: "webhooks/stripe#receive"
 
   # A fake WhatsApp for trying the product locally. Development only.
   if Rails.env.development?
@@ -19,6 +23,8 @@ Rails.application.routes.draw do
     get "dev/whatsapp/feed", to: "dev/whatsapp_simulator#feed"
     post "dev/whatsapp/send", to: "dev/whatsapp_simulator#deliver"
     post "dev/whatsapp/tick", to: "dev/whatsapp_simulator#tick"
+    get "dev/pay/:session_id", to: "dev/payment_simulator#show"
+    post "dev/pay/:session_id", to: "dev/payment_simulator#complete"
   end
 
   namespace :api do
@@ -50,7 +56,13 @@ Rails.application.routes.draw do
             resources :job_costs, only: [ :index, :create ]
           end
           resources :quotes, only: [ :index, :show, :create, :update ] do
-            post :deliver, on: :member
+            member do
+              post :deliver
+              post :revise
+            end
+          end
+          resources :payments, only: [ :index, :show, :create ] do
+            post :cancel, on: :member
           end
           resources :contracts, only: [ :index, :show, :create ] do
             member do

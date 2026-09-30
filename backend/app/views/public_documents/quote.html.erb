@@ -5,6 +5,8 @@
     <div class="banner ok">Accepted by <%= quote.accepted_name %> on <%= quote.accepted_at.in_time_zone(business.time_zone).strftime("%B %-d, %Y") %>. Thank you!</div>
   <% elsif quote.status_declined? %>
     <div class="banner bad">This quote was declined.</div>
+  <% elsif quote.status_void? && (newer = quote.superseded_by) %>
+    <div class="banner info">This quote was updated. <a href="<%= newer.public_url %>">See the latest version (<%= newer.label %>)</a>.</div>
   <% elsif quote.status_void? %>
     <div class="banner bad">This quote has been withdrawn.</div>
   <% elsif quote.status_draft? %>
@@ -28,6 +30,7 @@
       <tr><td colspan="3" class="n">Subtotal</td><td class="n"><%= Money.format(quote.subtotal_cents) %></td></tr>
       <% if quote.tax_rate_bps.positive? %><tr><td colspan="3" class="n">Tax (<%= quote.tax_rate_bps / 100.0 %>%)</td><td class="n"><%= Money.format(quote.tax_cents) %></td></tr><% end %>
       <tr class="total"><td colspan="3" class="n">Total</td><td class="n"><%= Money.format(quote.total_cents) %></td></tr>
+      <% if quote.deposit_amount_cents %><tr><td colspan="3" class="n">Deposit due on signing</td><td class="n"><%= Money.format(quote.deposit_amount_cents) %></td></tr><% end %>
     </tfoot>
   </table>
   <% if quote.notes.present? %><p class="body"><%= quote.notes %></p><% end %>

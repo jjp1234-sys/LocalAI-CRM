@@ -50,6 +50,21 @@ END $$;
 
 
 --
+-- Name: forbid_paid_payment_changes(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.forbid_paid_payment_changes() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF OLD.paid_at IS NOT NULL THEN
+    RAISE EXCEPTION 'payment % is paid and can no longer change', OLD.id;
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END $$;
+
+
+--
 -- Name: forbid_signed_contract_changes(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -149,10 +164,14 @@ CREATE TABLE public.businesses (
     default_tax_rate_bps integer DEFAULT 0 NOT NULL,
     quote_valid_days integer DEFAULT 30 NOT NULL,
     contract_terms text,
+    payments_provider character varying DEFAULT 'none'::character varying NOT NULL,
+    stripe_account_id character varying,
     CONSTRAINT businesses_contract_terms_length CHECK ((char_length(contract_terms) <= 50000)),
     CONSTRAINT businesses_name_length CHECK (((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 120))),
+    CONSTRAINT businesses_payments_provider_valid CHECK (((payments_provider)::text = ANY ((ARRAY['none'::character varying, 'simulator'::character varying, 'stripe'::character varying])::text[]))),
     CONSTRAINT businesses_quote_valid_days_range CHECK (((quote_valid_days >= 1) AND (quote_valid_days <= 365))),
     CONSTRAINT businesses_slug_format CHECK (((slug)::text ~ '^[a-z0-9]([a-z0-9-]{1,61})[a-z0-9]$'::text)),
+    CONSTRAINT businesses_stripe_account_format CHECK (((stripe_account_id IS NULL) OR ((stripe_account_id)::text ~ '^acct_[A-Za-z0-9]+$'::text))),
     CONSTRAINT businesses_tax_rate_range CHECK (((default_tax_rate_bps >= 0) AND (default_tax_rate_bps <= 3000)))
 );
 
@@ -437,6 +456,39 @@ CREATE TABLE public.outbound_messages (
 
 
 --
+-- Name: payments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    business_id uuid NOT NULL,
+    lead_id uuid NOT NULL,
+    quote_id uuid,
+    contract_id uuid,
+    created_by_id uuid,
+    kind character varying DEFAULT 'other'::character varying NOT NULL,
+    description character varying NOT NULL,
+    amount_cents bigint NOT NULL,
+    currency character varying DEFAULT 'usd'::character varying NOT NULL,
+    status character varying DEFAULT 'pending'::character varying NOT NULL,
+    provider character varying NOT NULL,
+    provider_session_id character varying,
+    checkout_url text,
+    token_digest character varying NOT NULL,
+    token text,
+    paid_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT payments_amount_range CHECK (((amount_cents >= 50) AND (amount_cents <= '10000000000'::bigint))),
+    CONSTRAINT payments_description_length CHECK (((char_length((description)::text) >= 1) AND (char_length((description)::text) <= 200))),
+    CONSTRAINT payments_kind_valid CHECK (((kind)::text = ANY ((ARRAY['deposit'::character varying, 'balance'::character varying, 'other'::character varying])::text[]))),
+    CONSTRAINT payments_paid_consistent CHECK ((((status)::text = 'paid'::text) = (paid_at IS NOT NULL))),
+    CONSTRAINT payments_provider_valid CHECK (((provider)::text = ANY ((ARRAY['simulator'::character varying, 'stripe'::character varying])::text[]))),
+    CONSTRAINT payments_status_valid CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'paid'::character varying, 'cancelled'::character varying])::text[])))
+);
+
+
+--
 -- Name: quote_items; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -480,8 +532,15 @@ CREATE TABLE public.quotes (
     declined_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    revision integer DEFAULT 1 NOT NULL,
+    deposit_bps integer,
+    deposit_cents bigint,
     CONSTRAINT quotes_accepted_consistent CHECK ((((status)::text = 'accepted'::text) = (accepted_at IS NOT NULL))),
+    CONSTRAINT quotes_deposit_bps_range CHECK (((deposit_bps IS NULL) OR ((deposit_bps >= 1) AND (deposit_bps <= 10000)))),
+    CONSTRAINT quotes_deposit_cents_range CHECK (((deposit_cents IS NULL) OR ((deposit_cents >= 1) AND (deposit_cents <= '10000000000'::bigint)))),
     CONSTRAINT quotes_notes_length CHECK ((char_length(notes) <= 5000)),
+    CONSTRAINT quotes_one_deposit_kind CHECK (((deposit_bps IS NULL) OR (deposit_cents IS NULL))),
+    CONSTRAINT quotes_revision_range CHECK (((revision >= 1) AND (revision <= 999))),
     CONSTRAINT quotes_status_valid CHECK (((status)::text = ANY ((ARRAY['draft'::character varying, 'sent'::character varying, 'accepted'::character varying, 'declined'::character varying, 'void'::character varying])::text[]))),
     CONSTRAINT quotes_tax_rate_range CHECK (((tax_rate_bps >= 0) AND (tax_rate_bps <= 3000)))
 );
@@ -528,6 +587,18 @@ CREATE TABLE public.users (
     CONSTRAINT users_email_lowercase CHECK (((email_address)::text = lower((email_address)::text))),
     CONSTRAINT users_name_length CHECK (((char_length((name)::text) >= 1) AND (char_length((name)::text) <= 120))),
     CONSTRAINT users_phone_e164 CHECK (((phone)::text ~ '^\+[1-9][0-9]{6,14}$'::text))
+);
+
+
+--
+-- Name: webhook_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.webhook_receipts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    provider character varying NOT NULL,
+    event_id character varying NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL
 );
 
 
@@ -676,6 +747,14 @@ ALTER TABLE ONLY public.outbound_messages
 
 
 --
+-- Name: payments payments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: quote_items quote_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -713,6 +792,14 @@ ALTER TABLE ONLY public.sessions
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: webhook_receipts webhook_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.webhook_receipts
+    ADD CONSTRAINT webhook_receipts_pkey PRIMARY KEY (id);
 
 
 --
@@ -832,6 +919,13 @@ CREATE UNIQUE INDEX index_contracts_on_business_id_and_number ON public.contract
 --
 
 CREATE INDEX index_contracts_on_created_by_id ON public.contracts USING btree (created_by_id);
+
+
+--
+-- Name: index_contracts_on_id_and_business_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_contracts_on_id_and_business_id ON public.contracts USING btree (id, business_id);
 
 
 --
@@ -1066,6 +1160,41 @@ CREATE INDEX index_outbound_messages_on_status_and_created_at ON public.outbound
 
 
 --
+-- Name: index_payments_on_business_id_and_status_and_paid_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payments_on_business_id_and_status_and_paid_at ON public.payments USING btree (business_id, status, paid_at);
+
+
+--
+-- Name: index_payments_on_created_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payments_on_created_by_id ON public.payments USING btree (created_by_id);
+
+
+--
+-- Name: index_payments_on_lead_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payments_on_lead_id ON public.payments USING btree (lead_id);
+
+
+--
+-- Name: index_payments_on_provider_session_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payments_on_provider_session_id ON public.payments USING btree (provider_session_id) WHERE (provider_session_id IS NOT NULL);
+
+
+--
+-- Name: index_payments_on_token_digest; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payments_on_token_digest ON public.payments USING btree (token_digest);
+
+
+--
 -- Name: index_quote_items_on_quote_id_and_position; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1073,10 +1202,10 @@ CREATE INDEX index_quote_items_on_quote_id_and_position ON public.quote_items US
 
 
 --
--- Name: index_quotes_on_business_id_and_number; Type: INDEX; Schema: public; Owner: -
+-- Name: index_quotes_on_business_id_and_number_and_revision; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX index_quotes_on_business_id_and_number ON public.quotes USING btree (business_id, number);
+CREATE UNIQUE INDEX index_quotes_on_business_id_and_number_and_revision ON public.quotes USING btree (business_id, number, revision);
 
 
 --
@@ -1136,10 +1265,24 @@ CREATE UNIQUE INDEX index_users_on_phone ON public.users USING btree (phone) WHE
 
 
 --
+-- Name: index_webhook_receipts_on_provider_and_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_webhook_receipts_on_provider_and_event_id ON public.webhook_receipts USING btree (provider, event_id);
+
+
+--
 -- Name: contracts contracts_frozen_once_signed; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER contracts_frozen_once_signed BEFORE DELETE OR UPDATE ON public.contracts FOR EACH ROW EXECUTE FUNCTION public.forbid_signed_contract_changes();
+
+
+--
+-- Name: payments payments_frozen_once_paid; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payments_frozen_once_paid BEFORE DELETE OR UPDATE ON public.payments FOR EACH ROW EXECUTE FUNCTION public.forbid_paid_payment_changes();
 
 
 --
@@ -1178,6 +1321,22 @@ ALTER TABLE ONLY public.job_costs
 
 ALTER TABLE ONLY public.outbound_messages
     ADD CONSTRAINT fk_rails_119dcdbe29 FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
+
+
+--
+-- Name: payments fk_rails_1fb182b99e; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT fk_rails_1fb182b99e FOREIGN KEY (created_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: payments fk_rails_2a5b12cbdc; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT fk_rails_2a5b12cbdc FOREIGN KEY (contract_id, business_id) REFERENCES public.contracts(id, business_id);
 
 
 --
@@ -1389,6 +1548,14 @@ ALTER TABLE ONLY public.appointments
 
 
 --
+-- Name: payments fk_rails_a862c09ff7; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT fk_rails_a862c09ff7 FOREIGN KEY (quote_id, business_id) REFERENCES public.quotes(id, business_id);
+
+
+--
 -- Name: intake_keys fk_rails_ab1fadf7d8; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1517,6 +1684,14 @@ ALTER TABLE ONLY public.follow_ups
 
 
 --
+-- Name: payments fk_rails_e6b6c4894b; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT fk_rails_e6b6c4894b FOREIGN KEY (lead_id, business_id) REFERENCES public.leads(id, business_id);
+
+
+--
 -- Name: job_costs fk_rails_e94fd397d2; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1538,6 +1713,14 @@ ALTER TABLE ONLY public.inbound_events
 
 ALTER TABLE ONLY public.leads
     ADD CONSTRAINT fk_rails_f9ae891732 FOREIGN KEY (business_id) REFERENCES public.businesses(id);
+
+
+--
+-- Name: payments fk_rails_fade6fd17c; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT fk_rails_fade6fd17c FOREIGN KEY (business_id) REFERENCES public.businesses(id);
 
 
 --
@@ -1762,6 +1945,19 @@ CREATE POLICY outbound_messages_tenant ON public.outbound_messages USING ((busin
 
 
 --
+-- Name: payments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: payments payments_tenant; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY payments_tenant ON public.payments USING ((business_id = public.current_business_id())) WITH CHECK ((business_id = public.current_business_id()));
+
+
+--
 -- Name: quote_items; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1794,6 +1990,7 @@ CREATE POLICY quotes_tenant ON public.quotes USING ((business_id = public.curren
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260930000007'),
 ('20260930000006'),
 ('20260930000005'),
 ('20260930000004'),

@@ -48,3 +48,6 @@ GRANT SELECT, INSERT, UPDATE ON follow_ups TO frontdesk_app;
 GRANT SELECT, INSERT ON job_costs TO frontdesk_app;
 GRANT SELECT, INSERT, UPDATE ON quotes, contracts TO frontdesk_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON quote_items TO frontdesk_app;
+
+-- Payment requests. A database trigger freezes them once paid.
+GRANT SELECT, INSERT, UPDATE ON payments TO frontdesk_app;

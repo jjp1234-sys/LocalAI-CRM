@@ -9,8 +9,9 @@ module Whatsapp
   # messages within QUIET_WINDOW don't notify again, unless they contain an
   # URGENT_WORDS word. Every message is still recorded ("lead 2" shows them).
   #
-  # A customer whose lead was won or lost starting a new conversation gets a
-  # question to the team instead: reopen the old lead, or start a new one?
+  # A customer whose lead was won or lost, writing again after RETURNING_AFTER
+  # of quiet, gets a question to the team instead: reopen the old lead, or
+  # start a new one?
   class CustomerInbox
     SNIPPET = 300
     QUIET_WINDOW = 15.minutes
@@ -20,6 +21,9 @@ module Whatsapp
     ].freeze
     URGENT_PATTERN = /\b(?:#{URGENT_WORDS.map { |w| Regexp.escape(w) }.join("|")})\b/i
     CLOSED_STAGES = %w[won lost].freeze
+    # A won/lost customer writing again within this long is carrying on the
+    # same job (paying a deposit, asking about the install), not coming back.
+    RETURNING_AFTER = 30.days
 
     def initialize(account:, event:)
       @account = account
@@ -29,7 +33,8 @@ module Whatsapp
     def call
       lead = find_or_create_lead
       conversation = lead.conversations.status_open.find_by(channel: "whatsapp")
-      returning = conversation.nil? && CLOSED_STAGES.include?(lead.status)
+      last_heard = CustomerMessenger.last_heard_at(lead)
+      returning = conversation.nil? && CLOSED_STAGES.include?(lead.status) && (last_heard.nil? || last_heard < RETURNING_AFTER.ago)
       conversation ||= lead.conversations.create!(channel: "whatsapp")
       conversation.messages.create!(body: body, direction: "inbound", sender_kind: "customer")
 

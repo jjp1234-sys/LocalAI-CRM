@@ -4,7 +4,7 @@ module Api
       # Quotes. PATCH replaces the item list: send the whole list each time.
       # POST .../quotes/:id/deliver marks it sent (the customer opens its url).
       class QuotesController < BaseController
-        before_action :set_quote, only: [ :show, :update, :deliver ]
+        before_action :set_quote, only: [ :show, :update, :deliver, :revise ]
 
         def index
           quotes = Quote.includes(:items).order(created_at: :desc, id: :desc)
@@ -42,6 +42,11 @@ module Api
           render_data Serializers.quote(@quote)
         end
 
+        # A new draft revision (same number, next revision), copied from this one.
+        def revise
+          render_data Serializers.quote(@quote.revise!(by: Current.user)), status: :created
+        end
+
         private
 
         def set_quote
@@ -49,8 +54,9 @@ module Api
         end
 
         def apply(quote)
-          attrs = params.expect(quote: [ :tax_rate_bps, :notes, :valid_until, :lead_id, items: [ [ :description, :quantity, :unit_price_cents ] ] ])
-          quote.update!(attrs.slice(:tax_rate_bps, :notes, :valid_until))
+          attrs = params.expect(quote: [ :tax_rate_bps, :notes, :valid_until, :deposit_bps, :deposit_cents, :lead_id,
+                                         items: [ [ :description, :quantity, :unit_price_cents ] ] ])
+          quote.update!(attrs.slice(:tax_rate_bps, :notes, :valid_until, :deposit_bps, :deposit_cents))
           return unless attrs.key?(:items)
 
           quote.items.destroy_all

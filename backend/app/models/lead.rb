@@ -15,6 +15,7 @@ class Lead < ApplicationRecord
   has_many :job_costs, dependent: :restrict_with_error
   has_many :quotes, dependent: :restrict_with_error
   has_many :contracts, dependent: :restrict_with_error
+  has_many :payments, dependent: :restrict_with_error
 
   # `prefix` because a status named "new" would otherwise create a
   # `Lead.new` scope that clashes with the constructor.
@@ -66,6 +67,16 @@ class Lead < ApplicationRecord
 
   def job_costs_cents
     job_costs.sum(:amount_cents)
+  end
+
+  def paid_cents
+    payments.status_paid.sum(:amount_cents)
+  end
+
+  # What's still owed: the deal's value minus what's been paid. nil until
+  # it has a value.
+  def balance_cents
+    value_cents && [ value_cents - paid_cents, 0 ].max
   end
 
   # What the job made: its value minus what it cost. nil until it has a value.

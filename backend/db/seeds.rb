@@ -6,6 +6,8 @@ business = Business.find_or_create_by!(slug: "south-florida-av") do |b|
   b.name = "South Florida AV"
   b.time_zone = "America/New_York"
 end
+# Payments go through the local simulator in development.
+business.update!(payments_provider: "simulator", default_tax_rate_bps: 700)
 
 owner = User.find_or_initialize_by(email_address: "owner@example.com")
 owner.update!(name: "Demo Owner", password: "demo password 123", phone: "+13055550100")

@@ -43,6 +43,7 @@ class Contract < ApplicationRecord
       lines << "Subtotal: #{Money.format(quote.subtotal_cents)}"
       lines << "Tax (#{quote.tax_rate_bps / 100.0}%): #{Money.format(quote.tax_cents)}" if quote.tax_rate_bps.positive?
       lines << "Total: #{Money.format(quote.total_cents)}"
+      lines << "Deposit due on signing: #{Money.format(quote.deposit_amount_cents)}" if quote.deposit_amount_cents
     end
     lines << ""
     lines << "TERMS"
@@ -66,11 +67,29 @@ class Contract < ApplicationRecord
       )
       value = quote&.total_cents || lead.value_cents
       lead.update!(status: "won", value_cents: value)
+      request_deposit
     end
     true
   end
 
+  # The deposit request created when this contract was signed, if any.
+  def deposit_payment
+    Payment.where(contract_id: id, kind: "deposit").where.not(status: "cancelled").first
+  end
+
   def void!
     update!(status: "void") unless status_signed?
+  end
+
+  private
+
+  # If the quote asks for a deposit and the business takes payments, signing
+  # creates the payment request; the signed page then shows a Pay button.
+  def request_deposit
+    amount = quote&.deposit_amount_cents
+    return unless amount && amount >= Payment::MIN_CENTS && business.payments_provider != "none"
+
+    Payment.create!(lead: lead, quote: quote, contract: self, kind: "deposit",
+      description: "Deposit for #{quote.label}", amount_cents: amount)
   end
 end
